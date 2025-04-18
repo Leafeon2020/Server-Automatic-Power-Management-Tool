@@ -72,11 +72,11 @@ sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv ve
 ```
 
 6. DiscordのBot環境を構築する
-6.1 [Discord Developer Portal](https://discord.com/developers/applications)で開発者として登録する
-6.2 Botを作成する 2個に分けて作ったほうが多分安全
-6.3 Botのトークンを取得する **一度しか表示されないのでちゃんと控える事**
-6.4 OAuth2でapplication.commandとbotにチェック入れてその下のとこでSebd NessagesとUse Slash Commandにチェックを入れた招待URLを作成
-6.5 適当な鯖に導入する
+    1. [Discord Developer Portal](https://discord.com/developers/applications)で開発者として登録する
+    2. Botを作成する 2個に分けて作ったほうが多分安全
+    3. Botのトークンを取得する **一度しか表示されないのでちゃんと控える事**
+    4. OAuth2でapplication.commandとbotにチェック入れてその下のとこでSebd NessagesとUse Slash Commandにチェックを入れた招待URLを作成
+    5. 適当な鯖に導入する
 
 7. 環境変数を変更する
 
