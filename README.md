@@ -97,7 +97,7 @@ sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv ve
 8. visudoを編集する
 
 スリープモードをコマンドからするためにはroot権限が必要なのだが、visudoを編集する事でパスワード入力を省略して実行出来る環境にする必要がある。  
-visudoに以下の記述を追加する。
+visudoに以下の記述を追加する。※(USERNAME)は各自のユーザー名に変更する事
 ```
 (USERNAME) ALL=NOPASSWD: /usr/bin/systemctl suspend
 ```
