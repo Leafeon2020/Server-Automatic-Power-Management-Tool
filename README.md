@@ -94,6 +94,16 @@ sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv ve
 |host|pingを送る対象のアドレス|E-Server|
 |mac|Wake on LANを送るMACアドレス|E-Server|
 
+8. visudoを編集する
+
+スリープモードをコマンドからするためにはroot権限が必要なのだが、visudoを編集する事でパスワード入力を省略して実行出来る環境にする必要がある。  
+visudoに以下の記述を追加する。
+```
+(USERNAME) ALL=NOPASSWD: /usr/bin/systemctl suspend
+```
+Hamachiで接続している場合は``(USERNAME) ALL=NOPASSWD: /usr/bin/systemctl restart logmein-hamachi.service``も追記する必要がある。  
+Hamachiを利用する場合はE-Serverの``subprocess.run(["sudo", "systemctl", "restart", "logmein-hamachi.service"], check = True)``のCOも解除する事。
+
 ### 起動方法
 ここまで環境を組んだら``python P-Server.py``でP-Serverが、``python E-Server.py``でE-Serverが起動します。  
 [ね?簡単でしょう?](https://dic.nicovideo.jp/a/%E3%81%AD%E3%80%81%E7%B0%A1%E5%8D%98%E3%81%A7%E3%81%97%E3%82%87%E3%81%86%3F)
