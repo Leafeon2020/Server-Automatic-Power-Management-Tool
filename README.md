@@ -134,4 +134,4 @@ DiscordのBotは以下のコマンドを受け付けます。
 基本無保証ですが何かあったら[Misskey](https://misskey.nukumori-sky.net/@krsw)にでも書いてください。反応したりしなかったりします。
 
 ## ライセンス
-![GPLv3](https://i.imgur.com/GiBhaDs.png)
+![GPLv3](https://upload.wikimedia.org/wikipedia/commons/thumb/9/93/GPLv3_Logo.svg/720px-GPLv3_Logo.svg.png)
