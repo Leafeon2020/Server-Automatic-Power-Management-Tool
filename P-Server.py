@@ -85,6 +85,7 @@ process_id: str = 0	#プロセスID
 #恒心ログ
 #2025/04/18 v1 - リリース
 #2025/04/25 v2 - killコマンドを使ってプロセスを一時停止させる機能を実装し、応答なしエラーで落ちる事を回避するように変更(あんま効果無いかも…)
+#2025/05/08 v3 - killコマンドの例外実装を追加
 
 #本体
 #起動時処理 on_readyが条件なんでスリープ復帰時にも処理されます
@@ -117,8 +118,11 @@ async def on_ready():
 	if intosleep == True:
 		print("復帰")
 		#一時停止解除
-		subprocess.run(["kill", "-CONT", process_id], check = True)
-		print("プロセスを再開しました")
+		try:
+			subprocess.run(["kill", "-CONT", process_id], check = True)
+			print("プロセスを再開しました")
+		except subprocess.CalledProcessError:
+			print("プロセス指定不可")
 		resume = True
 		intosleep = False
 		sleep = -1
@@ -189,8 +193,11 @@ async def task():
 			#プロセス一時停止処理
 			if status == 1:
 				process_id = get_pid()
-				subprocess.run(["kill", "-STOP", process_id], check = True)
-				print("プロセスを一時停止します")
+				try:
+					subprocess.run(["kill", "-STOP", process_id], check = True)
+					print("プロセスを一時停止します")
+				except subprocess.CalledProcessError:
+					print("プロセス指定不可")
 			sleep = -1
 			intosleep = True
 			for channel in client.get_all_channels():
