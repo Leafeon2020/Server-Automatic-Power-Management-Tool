@@ -6,6 +6,10 @@
 #Pythonライブラリ:discord.py
 #必要な外部ソフト:wakeonlan
 
+#恒心ログ
+#2025/04/18 v1 - リリース
+#2025/05/14 v2 - 再接続時の例外処理を実装
+
 #Discord類のインポート
 import discord # type: ignore
 from discord import app_commands # type: ignore
@@ -51,7 +55,10 @@ async def on_ready():
 			if channel.name == Manage_Channel:
 				await channel.send(f'ごりん終、だな')
 		print("死んでる")
-	task.start()	#死活確認起動
+	try:
+		task.start()	#死活確認起動
+	except:
+		print("死活確認起動済")
 	await tree.sync()
 	return
 
