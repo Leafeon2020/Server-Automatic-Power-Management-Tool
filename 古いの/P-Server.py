@@ -46,6 +46,18 @@ sleep_timer: int = 10	#スリープ移行までの時間(分)
 #システム用変数 触るな
 global status
 status: int = 0	#プロセス状態用フラグ 0で落ちてて1で生きてる2で起動処理中
+global resume
+resume: bool = False	#復帰フラグ
+global auto_sleep
+auto_sleep: bool = True	#自動スリープ設定
+global sleep
+sleep: int = -1	#無接続時間
+global intosleep
+intosleep: bool = False	#スリープモード移行フラグ
+global counter
+counter: int = 0	#同時アクセス数(設定全ポート分)
+global process_id
+process_id: str = 0	#プロセスID
 
 #仕様メモ
 #改行コードはとりあえずCR+LFで統一してます OSはLinuxですがWindows方言だと多分どのOSでも問題無いかと
@@ -55,6 +67,12 @@ status: int = 0	#プロセス状態用フラグ 0で落ちてて1で生きてる
 #圧縮周りは最終的に容量が小さくなりそうなxzで圧縮してる pixzに処理投げて待ち時間短縮や(誤差レベル)
 #鯖本体を直接操作して動かす事を想定してるため監視の自動停止はわざとしてません 止める時はtask.stop()とwatchdog.stop()で止めてください
 #定期死活確認は死んでたら処理を全部すっ飛ばします 外部から起動した場合は/statusでフラグを恒心してやる必要があります
+#クラッシュログ通知は一度出力したら止まりますが毎分起動します
+#visudoでsudo systenctl suspendをパスワード不要で実行出来る環境にする必要あり
+#確認したいポートを増やす場合はport_cとかの変数(int型)を増やしてssをsubprocessで呼び出しているとこを増やしてください
+#ssの結果は必ず-1してください 行数を見てるのでヘッダーもカウントされてます
+#構造上いくらポート接続者数を増やしても対応出来る設計にはなってます
+#スリープモードに移行するために一度プロセスを一時停止させて無理やり応答なしで落ちないようにしてます
 
 #開発用メモ
 #コマンドを呼び出した後はawait interaction.response.send_message("メッセージ")で返信しないと応答無し扱いになる
@@ -66,12 +84,17 @@ status: int = 0	#プロセス状態用フラグ 0で落ちてて1で生きてる
 
 #恒心ログ
 #2025/04/18 v1 - リリース
+#2025/04/25 v2 - killコマンドを使ってプロセスを一時停止させる機能を実装し、応答なしエラーで落ちる事を回避するように変更(あんま効果無いかも…)
 
 #本体
 #起動時処理 on_readyが条件なんでスリープ復帰時にも処理されます
 @client.event
 async def on_ready():
 	global status
+	global resume
+	global intosleep
+	global sleep
+	global process_id
 	print("サーバーマシン、起動!w")
 	await client.change_presence(activity=discord.Game("開示請求を発行中…"))
 	await tree.sync()	#コマンド読み込み
@@ -90,12 +113,44 @@ async def on_ready():
 			if channel.name == Manage_Channel:
 				await channel.send(f'鯖が起動してないですを')
 	await tree.sync()	#コマンドリスト恒心
+	#on_readyの仕様を利用したスリープ復帰検出のズボラ
+	if intosleep == True:
+		print("復帰")
+		#一時停止解除
+		subprocess.run(["kill", "-CONT", process_id], check = True)
+		print("プロセスを再開しました")
+		resume = True
+		intosleep = False
+		sleep = -1
+		#Hamachiで接続している場合のみこのCOを外してください
+		#subprocess.run(["sudo", "systemctl", "restart", "logmein-hamachi.service"], check = True)
+		for channel in client.get_all_channels():
+			if channel.name == Manage_Channel:
+				await channel.send(f'復帰処理が終わりました')
+		sleep = -1
+	try:
+		watchdog.start()	#クラッシュログ監視起動
+	except:
+		print("watchdog起動済")
+	try:
+		task.start()	#死活確認起動
+	except:
+		print("死活確認起動済")
 	return
 
 #監視処理
 @tasks.loop(seconds=60)	#毎分確認
 async def task():
 	global status
+	global port_a
+	global port_b
+	global auto_sleep
+	global sleep
+	global sleep_timer
+	global intosleep
+	global resume
+	global counter
+	global process_id
 	#プロセス監視
 	if status == 1:	#プロセスが死んでたらスルー(連投対策)
 		print("死活確認中")
@@ -109,7 +164,57 @@ async def task():
 				if channel.name == Manage_Channel:
 					await channel.send(f'なんてこった!サーバーが殺されちゃった!\r\nこの人でなし!')
 			print("死んでた")
+	#接続数監視
+	#復帰フラグ時の処理
+	if resume == True:
+		print("目が冴えてる(" + str(sleep) + "分経過)")
+		sleep += 1
+	#アクセス0の時の処理
+	else:
+		#ポートごとのアクセス数確認
+		result = subprocess.run("ss -tn sport = :" + str(port_a) +" | wc -l", shell = True, capture_output=True, text=True)
+		counter = int(result.stdout.strip()) - 1
+		result = subprocess.run("ss -tn sport = :" + str(port_b) +" | wc -l",shell = True, capture_output=True, text=True)
+		counter = counter + int(result.stdout.strip()) - 1
+		#誰も居ない時
+		if counter == 0:
+			sleep += 1
+			print("誰も居ないなぁ…(" + str(sleep) + "分経過)")
+		#誰か居た時
+		else:
+			sleep = 0
+			print("今" + str(counter) + "人居る")
+		#スリープモード起動
+		if sleep > sleep_timer and auto_sleep == True and intosleep == False:
+			#プロセス一時停止処理
+			if status == 1:
+				process_id = get_pid()
+				subprocess.run(["kill", "-STOP", process_id], check = True)
+				print("プロセスを一時停止します")
+			sleep = -1
+			intosleep = True
+			for channel in client.get_all_channels():
+				if channel.name == Manage_Channel:
+					await channel.send(f'スリープモードに移行します\r\n復帰には/bootを使ってください')
+			print("スリープモード移行")
+			subprocess.run(["sudo", "systemctl", "suspend"], check = True)
+	#復帰フラグ解除
+	if resume == True and sleep > 5:
+		print("待機時間終わり!")
+		resume = False
+		sleep = 0
 	return
+
+#PID取得
+def get_pid():
+	global process_name
+	try:
+		result = subprocess.run(["pgrep", "-o", process_name], capture_output=True, text=True)
+		if result.returncode == 0 and result.stdout.strip():
+			return str(result.stdout.strip())
+	except Exception as e:
+		print(f"なんか例外吐いてるぞ: {e}")
+	return None	#例外吐いた時の保険
 
 #クラッシュログ通知
 @tasks.loop(seconds=60)	#起動聖句を思いつかなかったのでtask.loopで起動してます
@@ -237,17 +342,39 @@ async def com_status(interaction: discord.Interaction):
 		print("鯖死亡")
 	return
 
+#自動スリープ切り替え
+@tree.command(name="auto-sleep", description="自動スリープの設定をします")
+@describe(cmd="スイッチ")
+@discord.app_commands.default_permissions(administrator=True)
+async def sleep_switch(interaction: discord.Interaction, cmd: bool):
+	global auto_sleep
+	global sleep
+	if cmd == True:
+		auto_sleep = True
+		sleep = 0
+		await interaction.response.send_message(f'オートスリープを有効にしました')
+	elif cmd == False:
+		auto_sleep = False
+		await interaction.response.send_message(f'オートスリープを無効にしました')
+
 #デバッグ用
 @tree.command(name="debug", description="状態変数を返します")
 async def debug(interaction: discord.Interaction):
 	global status
+	global auto_sleep
+	global sleep
+	global counter
+	global process_name
+	pid = get_pid()
+	if pid == None:
+		pid = ("プロセス無し")
 	if status == 0:
 		state = "0(プロセス無し)"
 	elif status == 1:
 		state = "1(プロセス実行中)"
 	elif status == 2:
 		state = "2(起動処理中)"
-	await interaction.response.send_message("status:" + state)
+	await interaction.response.send_message("status:" + state + "\r\n自動スリープフラグ:" + str(auto_sleep) + "\r\n待機時間:" + str(sleep) + "\r\n同時アクセス数:" + str(counter) + "\r\n" + process_name + "のPID:" + pid)
 	return
 
 #終了処理
