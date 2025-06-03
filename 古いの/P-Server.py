@@ -11,12 +11,16 @@ import discord # type: ignore
 from discord import app_commands # type: ignore
 from discord.ext import tasks # type: ignore
 from discord.app_commands import describe	# type: ignore
+#外部ライブラリのインポート
+from watchfiles import awatch	# type: ignore
 #システム系のインポート
 import os
+import re
 from glob import glob
 import datetime
 import subprocess
-from watchfiles import awatch	# type: ignore
+import time
+import shutil
 
 #初期設定
 intents = discord.Intents.default()	#反応イベント指定
@@ -26,7 +30,7 @@ tree = app_commands.CommandTree(client)	#コマンド類宣言
 #変数類
 #Pythonはvarで自動宣言するけどC#のノリで型指定してます
 #環境変数
-TOKEN: str = "https://krsw-wiki.org"	#Botのトークン
+TOKEN: str = "https://krsw-wiki.in/"	#Botのトークン
 process_name: str = "java"	#プロセス名指定
 Manage_Channel: str = "うんち"	#書き込み先
 directory: str = "/home/krsw/.minecraft"	#対象ディレクトリ
@@ -34,15 +38,15 @@ command: str = (
 		"mate-terminal",	#DEの端末
 		"--maximize",	#最大化
 		"--command",	#以下のコマンドを実行する
-		"java -Xmx1024M -Xms1024M -jar /home/krsw/.minecraft/minecraft_server.1.21.5.jar nogui"	#鯖起動命令
+		"java -Xmx1024M -Xms1024M -jar /home/krsw/.minecraft/CatServer-universal.jar"	#鯖起動命令
 	)	#鯖起動コマンド
 backup: str = "/home/krsw/backup"	#バックアップ保存先
-global port_a
 port_a : int = 2783	#ポート番号その1
-global port_b
 port_b : int = 43044	#ポート番号その2
-global sleep_timer
 sleep_timer: int = 10	#スリープ移行までの時間(分)
+cloud: str = "/home/krsw/MEGA"	#クラウドストレージの保存先
+cloud_swtich: bool = True	#クラウドに保存するか
+
 #システム用変数 触るな
 global status
 status: int = 0	#プロセス状態用フラグ 0で落ちてて1で生きてる2で起動処理中
@@ -58,6 +62,7 @@ global counter
 counter: int = 0	#同時アクセス数(設定全ポート分)
 global process_id
 process_id: str = 0	#プロセスID
+switch_file: str = directory + "/sleep_switch.txt"	#watchdog制御用ファイル
 
 #仕様メモ
 #改行コードはとりあえずCR+LFで統一してます OSはLinuxですがWindows方言だと多分どのOSでも問題無いかと
@@ -86,6 +91,7 @@ process_id: str = 0	#プロセスID
 #2025/04/18 v1 - リリース
 #2025/04/25 v2 - killコマンドを使ってプロセスを一時停止させる機能を実装し、応答なしエラーで落ちる事を回避するように変更(あんま効果無いかも…)
 #2025/05/08 v3 - killコマンドの例外実装を追加
+#2025/05/21 v4 - クラウドへのバックアップ機能と改造版CatServerに合わせた記述を追加 改造版CatServer以外の互換性は無いです
 
 #本体
 #起動時処理 on_readyが条件なんでスリープ復帰時にも処理されます
@@ -114,12 +120,20 @@ async def on_ready():
 			if channel.name == Manage_Channel:
 				await channel.send(f'鯖が起動してないですを')
 	await tree.sync()	#コマンドリスト恒心
+	#watchdogフラグ制御ファイル作成
+	if os.path.isfile(switch_file) == False:
+		with open(switch_file, 'w') as f:
+			f.write("1")
+		print("制御ファイルを作成しました")
 	#on_readyの仕様を利用したスリープ復帰検出のズボラ
 	if intosleep == True:
 		print("復帰")
 		#一時停止解除
 		try:
 			subprocess.run(["kill", "-CONT", process_id], check = True)
+			time.sleep(5)	#恒心検知処理が動くようにちょっと待つ
+			with open(switch_file, 'w') as f:
+				f.write("1")
 			print("プロセスを再開しました")
 		except subprocess.CalledProcessError:
 			print("プロセス指定不可")
@@ -194,6 +208,9 @@ async def task():
 			if status == 1:
 				process_id = get_pid()
 				try:
+					with open(switch_file, 'w') as f:
+						f.write("0")
+					time.sleep(5)	#鯖側で処理するための待ち時間
 					subprocess.run(["kill", "-STOP", process_id], check = True)
 					print("プロセスを一時停止します")
 				except subprocess.CalledProcessError:
@@ -290,6 +307,13 @@ async def com_start(interaction: discord.Interaction):
 			for channel in client.get_all_channels():
 				if channel.name == Manage_Channel:
 					await channel.send(f'バックアップを生成しました')
+			#クラウドにバックアップするか
+			if cloud_swtich == True:
+				cloud_backup: str = get_latest_backup_file(cloud)	#既存バックアップ名取得
+				#バックアップが既にある場合は消去してコピー
+				if cloud_backup != "":
+					os.remove(cloud + cloud_backup)
+				shutil.copy(backup + "/" + filename, cloud)
 		#例外処理
 		except subprocess.CalledProcessError as e:
 			print("圧縮例外\r\n" + e)
@@ -328,6 +352,30 @@ async def com_start(interaction: discord.Interaction):
 		print("多重起動防止")
 		await interaction.response.send_message(f'鯖、生きてるってよ')
 	return
+
+#バックアップファイル名取得
+def get_latest_backup_file(directory: str) -> str:
+    pattern = re.compile(r"world-(\d{8})-(\d{6})\.tar\.xz$")	#パターン指定
+	#初期化
+    latest_time = None
+    latest_file = None
+    for filename in os.listdir(directory):	#引数で指定したフォルダの中身を片っ端から調査
+        match = pattern.match(filename)	#指定パターンに一致したらmatchに代入
+        if match:
+			#比較対象のファイル名分析
+            date_str, time_str = match.groups()
+            dt_str = f"{date_str}-{time_str}"
+            try:
+				#基準ファイル名生成
+                dt = datetime.strptime(dt_str, "%Y%m%d-%H%M%S")
+				#ファイル名比較
+                if latest_time is None or dt > latest_time:
+                    latest_time = dt
+                    latest_file = filename
+			#例外処理
+            except ValueError:
+                continue
+    return latest_file if latest_file else ""
 
 #死活確認
 @tree.command(name="status", description="サーバープロセスが生きてるか確認します")
