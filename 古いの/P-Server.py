@@ -6,6 +6,41 @@
 #Pythonライブラリ:discord.py、watchfiles
 #必要な外部ソフト:pixz
 
+#仕様メモ
+#改行コードはとりあえずCR+LFで統一してます OSはLinuxですがWindows方言だと多分どのOSでも問題無いかと
+#コマンド実行する外部コマンドは全部Linux用です Windowsでは使えません macOSは知らん
+#commnadの最初の変数を変えれば別のDEでも動く
+#起動メッセージはURL直リンで対応という荒業 403吐くようになったらオラ知らね(無責任)
+#圧縮周りは最終的に容量が小さくなりそうなxzで圧縮してる pixzに処理投げて待ち時間短縮や(誤差レベル)
+#鯖本体を直接操作して動かす事を想定してるため監視の自動停止はわざとしてません 止める時はtask.stop()とwatchdog.stop()で止めてください
+#定期死活確認は死んでたら処理を全部すっ飛ばします 外部から起動した場合は/statusでフラグを恒心してやる必要があります
+#クラッシュログ通知は一度出力したら止まりますが毎分起動します
+#visudoでsudo systenctl suspendをパスワード不要で実行出来る環境にする必要あり
+#一応Hamachi対応です sudo systemctl restart logmein-hamachi.serviceをvisudo触ってパスワード無しで使えるようにしてCO外せば機能します その代わり復帰処理の時間が伸びます
+#確認したいポートを増やす場合はport_cとかの変数(int型)を増やしてssをsubprocessで呼び出しているとこを増やしてください
+#ssの結果は必ず-1してください 行数を見てるのでヘッダーもカウントされてます
+#構造上いくらポート接続者数を増やしても対応出来る設計にはなってます
+#スリープモードに移行するためにCatServer側に仕込んだwatchdog_switch.javaを使った強引なWatchdogThread制御スイッチを起動するための処理をしてます その後プロセスを一時停止してます
+#復帰時はまずプロセスを再開(この時はまだwatchdogが止まってる)してからwathcdog_switch.javaを反応させるためファイルを書き換えてWatchdogThreadを再起動します
+#復帰時の待機時間は長めに取っておいたほうがいいです kill -CONTを飛ばしてから実際にプロセスが動き出すまで結構時間掛かってる感じがしたので1分待機させてます
+#クラッシュした時の対策とかも兼ねて自動再起動は入れてません(というよりSpigot側に実装されてる)
+
+#開発用メモ
+#コマンドを呼び出した後はawait interaction.response.send_message("メッセージ")で返信しないと応答無し扱いになる
+#毎回チャンネル名取得してるけどグローバル変数化したら最初の1回だけで済むかも
+#鯖起動だけsubprocess.Popenにしてるのはsubprocess.runだと鯖が死ぬまで応答が無くなるため
+#subprocess.Popenの引数の渡し方は呼び出すやつ,オプション1,オプション2…みたいな書き方しないとエラー吐いて無理って言われる
+#返信が3秒以上遅れる場合はawait interaction.response.defer()で考え中にしてawait interaction.followup.send("")でやらないとエラーになる
+#グローバル変数化はPythonの仕様上関数ごとに呼び出さないといけないらしい
+#killコマンド関連はkillallに変えたほうがコード長が短くなる事を書いてから知りました もう面倒なんでこのまま行きます
+
+#恒心ログ
+#2025/04/18 v1 - リリース
+#2025/04/25 v2 - killコマンドを使ってプロセスを一時停止させる機能を実装し、応答なしエラーで落ちる事を回避するように変更
+#2025/05/08 v3 - killコマンドの例外実装を追加
+#2025/05/21 v4 - クラウドへのバックアップ機能と改造版CatServerに合わせた記述を追加 改造版CatServer以外の互換性は無いです
+#2025/05/23 v5 - バックアップ周りのバグ修正とCatServer用の挙動の変更
+
 #Discord類のインポート
 import discord # type: ignore
 from discord import app_commands # type: ignore
@@ -17,10 +52,10 @@ from watchfiles import awatch	# type: ignore
 import os
 import re
 from glob import glob
-import datetime
+from datetime import datetime
 import subprocess
-import time
 import shutil
+import asyncio
 
 #初期設定
 intents = discord.Intents.default()	#反応イベント指定
@@ -64,35 +99,6 @@ global process_id
 process_id: str = 0	#プロセスID
 switch_file: str = directory + "/sleep_switch.txt"	#watchdog制御用ファイル
 
-#仕様メモ
-#改行コードはとりあえずCR+LFで統一してます OSはLinuxですがWindows方言だと多分どのOSでも問題無いかと
-#コマンド実行する外部コマンドは全部Linux用です Windowsでは使えません macOSは知らん
-#commnadの最初の変数を変えれば別のDEでも動く
-#起動メッセージはURL直リンで対応という荒業 403吐くようになったらオラ知らね(無責任)
-#圧縮周りは最終的に容量が小さくなりそうなxzで圧縮してる pixzに処理投げて待ち時間短縮や(誤差レベル)
-#鯖本体を直接操作して動かす事を想定してるため監視の自動停止はわざとしてません 止める時はtask.stop()とwatchdog.stop()で止めてください
-#定期死活確認は死んでたら処理を全部すっ飛ばします 外部から起動した場合は/statusでフラグを恒心してやる必要があります
-#クラッシュログ通知は一度出力したら止まりますが毎分起動します
-#visudoでsudo systenctl suspendをパスワード不要で実行出来る環境にする必要あり
-#確認したいポートを増やす場合はport_cとかの変数(int型)を増やしてssをsubprocessで呼び出しているとこを増やしてください
-#ssの結果は必ず-1してください 行数を見てるのでヘッダーもカウントされてます
-#構造上いくらポート接続者数を増やしても対応出来る設計にはなってます
-#スリープモードに移行するために一度プロセスを一時停止させて無理やり応答なしで落ちないようにしてます
-
-#開発用メモ
-#コマンドを呼び出した後はawait interaction.response.send_message("メッセージ")で返信しないと応答無し扱いになる
-#毎回チャンネル名取得してるけどグローバル変数化したら最初の1回だけで済むかも
-#鯖起動だけsubprocess.Popenにしてるのはsubprocess.runだと鯖が死ぬまで応答が無くなるため
-#subprocess.Popenの引数の渡し方は呼び出すやつ,オプション1,オプション2…みたいな書き方しないとエラー吐いて無理って言われる
-#返信が3秒以上遅れる場合はawait interaction.response.defer()で考え中にしてawait interaction.followup.send("")でやらないとエラーになる
-#グローバル変数化はPythonの仕様上関数ごとに呼び出さないといけないらしい
-
-#恒心ログ
-#2025/04/18 v1 - リリース
-#2025/04/25 v2 - killコマンドを使ってプロセスを一時停止させる機能を実装し、応答なしエラーで落ちる事を回避するように変更(あんま効果無いかも…)
-#2025/05/08 v3 - killコマンドの例外実装を追加
-#2025/05/21 v4 - クラウドへのバックアップ機能と改造版CatServerに合わせた記述を追加 改造版CatServer以外の互換性は無いです
-
 #本体
 #起動時処理 on_readyが条件なんでスリープ復帰時にも処理されます
 @client.event
@@ -131,16 +137,12 @@ async def on_ready():
 		#一時停止解除
 		try:
 			subprocess.run(["kill", "-CONT", process_id], check = True)
-			time.sleep(5)	#恒心検知処理が動くようにちょっと待つ
-			with open(switch_file, 'w') as f:
-				f.write("1")
 			print("プロセスを再開しました")
 		except subprocess.CalledProcessError:
 			print("プロセス指定不可")
 		resume = True
 		intosleep = False
 		sleep = -1
-		#Hamachiで接続している場合のみこのCOを外してください
 		#subprocess.run(["sudo", "systemctl", "restart", "logmein-hamachi.service"], check = True)
 		for channel in client.get_all_channels():
 			if channel.name == Manage_Channel:
@@ -154,6 +156,9 @@ async def on_ready():
 		task.start()	#死活確認起動
 	except:
 		print("死活確認起動済")
+	await asyncio.sleep(60)	#恒心検知処理が動くようにちょっと待つ
+	with open(switch_file, 'w') as f:
+		f.write("1")
 	return
 
 #監視処理
@@ -210,7 +215,7 @@ async def task():
 				try:
 					with open(switch_file, 'w') as f:
 						f.write("0")
-					time.sleep(5)	#鯖側で処理するための待ち時間
+					await asyncio.sleep(5)	#鯖側で処理するための待ち時間
 					subprocess.run(["kill", "-STOP", process_id], check = True)
 					print("プロセスを一時停止します")
 				except subprocess.CalledProcessError:
@@ -222,6 +227,7 @@ async def task():
 					await channel.send(f'スリープモードに移行します\r\n復帰には/bootを使ってください')
 			print("スリープモード移行")
 			subprocess.run(["sudo", "systemctl", "suspend"], check = True)
+			task.stop()
 	#復帰フラグ解除
 	if resume == True and sleep > 5:
 		print("待機時間終わり!")
@@ -298,7 +304,7 @@ async def com_start(interaction: discord.Interaction):
 		#バックアップ生成
 		try:
 			#ファイル名生成
-			timestamp: str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+			timestamp: str = datetime.now().strftime("%Y%m%d-%H%M%S")
 			filename: str = f"world-{timestamp}.tar.xz"
 			#.tar.xzで圧縮
 			print("圧縮開始")
@@ -312,7 +318,7 @@ async def com_start(interaction: discord.Interaction):
 				cloud_backup: str = get_latest_backup_file(cloud)	#既存バックアップ名取得
 				#バックアップが既にある場合は消去してコピー
 				if cloud_backup != "":
-					os.remove(cloud + cloud_backup)
+					os.remove(cloud + "/" + cloud_backup)
 				shutil.copy(backup + "/" + filename, cloud)
 		#例外処理
 		except subprocess.CalledProcessError as e:
@@ -342,7 +348,6 @@ async def com_start(interaction: discord.Interaction):
 				if channel.name == Manage_Channel:
 					await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
 					status = 0	#死んだ扱いにする
-		
 	#多重起動防止
 	elif status == 2:
 		for channel in client.get_all_channels():
@@ -355,27 +360,23 @@ async def com_start(interaction: discord.Interaction):
 
 #バックアップファイル名取得
 def get_latest_backup_file(directory: str) -> str:
-    pattern = re.compile(r"world-(\d{8})-(\d{6})\.tar\.xz$")	#パターン指定
+	pattern = re.compile(r"world-(\d{8})-(\d{6})\.tar\.xz")	#パターン指定
 	#初期化
-    latest_time = None
-    latest_file = None
-    for filename in os.listdir(directory):	#引数で指定したフォルダの中身を片っ端から調査
-        match = pattern.match(filename)	#指定パターンに一致したらmatchに代入
-        if match:
-			#比較対象のファイル名分析
-            date_str, time_str = match.groups()
-            dt_str = f"{date_str}-{time_str}"
-            try:
-				#基準ファイル名生成
-                dt = datetime.strptime(dt_str, "%Y%m%d-%H%M%S")
-				#ファイル名比較
-                if latest_time is None or dt > latest_time:
-                    latest_time = dt
-                    latest_file = filename
-			#例外処理
-            except ValueError:
-                continue
-    return latest_file if latest_file else ""
+	latest_time = None
+	latest_file = None
+	for filename in os.listdir(directory):	#引数で指定したフォルダの中身を片っ端から調査
+		match = pattern.fullmatch(filename)	#条件完全一致で変数に格納
+		if match:
+			date_str = match.group(1) + match.group(2)	#YYYYmmddHHMMSS
+			try:
+				file_time = datetime.strptime(date_str, "%Y%m%d%H%M%S")	#基準時刻生成
+				#ファイル名の時刻を分析して比較
+				if latest_time is None or file_time > latest_time:
+					latest_time = file_time
+					latest_file = filename
+			except ValueError:
+				continue	#不正な日付はスキップ
+	return latest_file if latest_file else ""	#ファイルが無いと長さ0のstr型を返す
 
 #死活確認
 @tree.command(name="status", description="サーバープロセスが生きてるか確認します")
