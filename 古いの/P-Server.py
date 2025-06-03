@@ -40,6 +40,7 @@
 #2025/05/08 v3 - killコマンドの例外実装を追加
 #2025/05/21 v4 - クラウドへのバックアップ機能と改造版CatServerに合わせた記述を追加 改造版CatServer以外の互換性は無いです
 #2025/05/23 v5 - バックアップ周りのバグ修正とCatServer用の挙動の変更
+#2025/05/29 v6 - 同時接続数監視のバグ修正
 
 #Discord類のインポート
 import discord # type: ignore
@@ -165,8 +166,6 @@ async def on_ready():
 @tasks.loop(seconds=60)	#毎分確認
 async def task():
 	global status
-	global port_a
-	global port_b
 	global auto_sleep
 	global sleep
 	global sleep_timer
@@ -195,10 +194,10 @@ async def task():
 	#アクセス0の時の処理
 	else:
 		#ポートごとのアクセス数確認
-		result = subprocess.run("ss -tn sport = :" + str(port_a) +" | wc -l", shell = True, capture_output=True, text=True)
-		counter = int(result.stdout.strip()) - 1
-		result = subprocess.run("ss -tn sport = :" + str(port_b) +" | wc -l",shell = True, capture_output=True, text=True)
-		counter = counter + int(result.stdout.strip()) - 1
+		result1 = subprocess.run("ss -tn sport = :" + str(port_a) +" | wc -l", shell = True, capture_output=True, text=True)
+		counter = int(result1.stdout.strip()) - 1
+		result2 = subprocess.run("ss -tn sport = :" + str(port_b) +" | wc -l",shell = True, capture_output=True, text=True)
+		counter += int(result2.stdout.strip()) - 1
 		#誰も居ない時
 		if counter == 0:
 			sleep += 1
