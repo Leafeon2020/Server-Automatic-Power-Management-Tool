@@ -9,7 +9,7 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 双方のサーバーがDiscord上で動作し、スラッシュコマンドによってP-Serverを制御する形になります。  
 クラッシュログが生成されたら通知する機能も付いてます。
 
-元々Minecraftの鯖用に書いてますが各種変数とかを触れば一応他に流用は出来ます。
+元々Minecraftのサーバー用に書いてますが各種変数とかを触れば一応他に流用は出来ます。
 
 ## 更新履歴
 各ファイルに記載してあります。性質上修正が必要になるのはほぼほぼP-ServerになるためE-Serverはあまり更新が無いと思います。
@@ -18,10 +18,11 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 ### 両方に必要
 - Linux *(P-ServerはUbuntu 24.04、E-ServerはRaspbbery Pi OS Bullseyeで動作確認済)*
 - Python 3.x *(3.11.2で動作確認済)*
-- [discord.py](https://discordpy.readthedocs.io/ja/latest/index.html)
+- [discord.py](https://github.com/Rapptz/discord.py)
 ### P-Serverに必要
 - [pixz](https://github.com/vasi/pixz)
 - [watchfile](https://github.com/samuelcolvin/watchfiles)
+- [MCStatus](https://github.com/py-mine/mcstatus)
 - Wake on LANに対応したハードウェア
 ### E-Serverに必要
 - [wakeonlan](https://github.com/jpoliv/wakeonlan)
@@ -61,15 +62,16 @@ nmcli c modify "<有線接続名>" 802-3-ethernet.wake-on-lan magic
 後はUEFI側でWake on LANを有効化してください。物によって設定方法が違うのでこれは省略。全ての設定を終えたら一度再起動。
 
 5. 諸々の前提ソフトを導入
-Python、watchfile、pixz、discord.pyを導入します。  
-邪魔くさい人向けに一括でセットアップ出来るコマンドを貼っておきます **※無保証**  
+Python、watchfile、pixz、discord.py、MCStatusを導入します。  
+邪魔くさい人向けに一括でセットアップ出来るコマンドを貼っておきます **※無保証**
+
 P-Server用
 ```sh
-sudo apt update && sudo apt install -y pixz python3.12 watchfile && pip install discord.py
+sudo apt update && sudo apt install -y pixz python3.12 watchfile && pip install -U pip && pip install discord.py mcstatus
 ```
 E-Server用 *テスト環境がRaspberry Piなのでvenvまで書いてます*
 ```sh
-sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv venv && . venv/bin/activate && pip install discord.py
+sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv venv && . venv/bin/activate && pip install -U pip && pip install discord.py
 ```
 
 6. DiscordのBot環境を構築する
