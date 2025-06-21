@@ -86,8 +86,8 @@ command: str = (
 be_start: str = (
 		"mate-terminal",	#DEの端末
 		"--maximize",	#最大化
-    	"--working-directory=/home/krsw/Minecraft_Bedrock",	#カレントディレクトリ変更
-    	"--", "bash",	#bashコアンドを宣言
+		"--working-directory=/home/krsw/Minecraft_Bedrock",	#カレントディレクトリ変更
+		"--", "bash",	#bashコアンドを宣言
 		"-c", "LD_LIBRARY_PATH=. ./bedrock_server; exec bash"	#bashコマンド
 	)	#BE鯖起動コマンド
 backup: str = "/home/krsw/backup"	#バックアップ保存先
@@ -125,10 +125,10 @@ type = ["JE", "BE"]	#引数用
 
 #オートコンプリート関数
 async def version_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
-    return [
-        app_commands.Choice(name=version, value=version)
-        for version in type if current.lower() in version.lower()
-    ][:2]
+	return [
+		app_commands.Choice(name=version, value=version)
+		for version in type if current.lower() in version.lower()
+	][:2]
 
 #本体
 #起動時処理 on_readyが条件なんでスリープ復帰時にも処理されます
@@ -357,21 +357,21 @@ async def watchdog():
 	
 #ログ抽出
 def extract(file_path, start_str, end_str):
-    extracted_lines = []	#str型配列 ログ格納用
-    inside_section = False	#追記開始フラグ
+	extracted_lines = []	#str型配列 ログ格納用
+	inside_section = False	#追記開始フラグ
 	#読み込み処理
-    with open(file_path, 'r', encoding='utf-8') as file:
-        for line in file:	#上から読み込み
+	with open(file_path, 'r', encoding='utf-8') as file:
+		for line in file:	#上から読み込み
 			#開始行発見
-            if start_str in line:
-                inside_section = True
+			if start_str in line:
+				inside_section = True
 			#ログを文字列に追記(改行コード込)
-            if inside_section:
-                extracted_lines.append(line)
+			if inside_section:
+				extracted_lines.append(line)
 			#終了行で停止
-            if end_str in line and inside_section:
-                break
-    return ''.join(extracted_lines)	#str型で返す
+			if end_str in line and inside_section:
+				break
+	return ''.join(extracted_lines)	#str型で返す
 
 #コマンド処理
 #起動
