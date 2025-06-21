@@ -43,6 +43,7 @@
 #2025/05/23 v5 - バックアップ周りのバグ修正とCatServer用の挙動の変更
 #2025/05/29 v6 - 同時接続数監視のバグ修正
 #2025/06/02 v7 - BEサポートを追加、接続数コマンド実装、接続数の監視方法をMCStatusに変更
+#2025/06/16 v8 - MCStatusの例外処理実装
 
 #Discord類のインポート
 import discord # type: ignore
@@ -256,14 +257,24 @@ async def task():
 	else:
 		#ポートごとのアクセス数確認
 		#JE
-		JE_Status = JE_server.status()
-		counter = JE_Status.players.online
+		try:
+			JE_Status = JE_server.status()
+			counter = JE_Status.players.online
+		except ConnectionRefusedError:
+			counter = 0
+		except TimeoutError:
+			counter = 0
 		#SSH
 		ssh = subprocess.run("ss -tn sport = :" + str(port_b) +" | wc -l",shell = True, capture_output=True, text=True)
 		counter += int(ssh.stdout.strip()) - 1
 		#BE
-		BE_Status = BE_server.status()
-		counter += BE_Status.players.online
+		try:
+			BE_Status = BE_server.status()
+			counter += BE_Status.players.online
+		except ConnectionRefusedError:
+			counter += 0
+		except TimeoutError:
+			counter += 0
 		#誰も居ない時
 		if counter == 0:
 			sleep += 1
@@ -533,7 +544,7 @@ def get_latest_backup_file(directory: str, switch: int) -> str:
 	return latest_file if latest_file else ""	#ファイルが無いと長さ0のstr型を返す
 
 #死活確認
-@tree.command(name="status", description="ーバープロセスが生きてるか確認します")
+@tree.command(name="status", description="サーバープロセスが生きてるか確認します")
 @describe(target="確認対象")
 @app_commands.autocomplete(target=version_autocomplete)
 async def com_status(interaction: discord.Interaction, target: str):
@@ -594,6 +605,7 @@ async def sleep_switch(interaction: discord.Interaction, switch: bool):
 #デバッグ用
 @tree.command(name="debug", description="状態変数を返します")
 async def debug(interaction: discord.Interaction):
+	await interaction.response.defer()
 	global status
 	global status_be
 	global auto_sleep
@@ -619,19 +631,30 @@ async def debug(interaction: discord.Interaction):
 		state_be = "1(プロセス実行中)"
 	elif status_be == 2:
 		state_be = "2(起動処理中)"
-	await interaction.response.send_message("status:" + state + "\r\nstatus_be:" + state_be + "\r\n自動スリープフラグ:" + str(auto_sleep) + "\r\n待機時間:" + str(sleep) + "\r\n同時アクセス数:" + str(counter) + "\r\n" + process_name + "のPID:" + pid + "\r\n" + process_name_be + "のPID:" + pid_be)
+	await interaction.followup.send("status:" + state + "\r\nstatus_be:" + state_be + "\r\n自動スリープフラグ:" + str(auto_sleep) + "\r\n待機時間:" + str(sleep) + "\r\n同時アクセス数:" + str(counter) + "\r\n" + process_name + "のPID:" + pid + "\r\n" + process_name_be + "のPID:" + pid_be)
 	return
 
 #プレイヤー数取得
 @tree.command(name="players", description="プレイヤー数を表示します")
 async def com_start(interaction: discord.Interaction):
+	await interaction.response.defer()
 	#JE
-	JE_Status = JE_server.status()
-	player_je = JE_Status.players.online
+	try:
+		JE_Status = JE_server.status()
+		player_je = JE_Status.players.online
+	except ConnectionRefusedError:
+		player_je = 0
+	except TimeoutError:
+		player_je = 0
 	#BE
-	BE_Status = BE_server.status()
-	player_be = BE_Status.players.online
-	await interaction.response.send_message("現在JE鯖には" + str(player_je) + "人が、BE鯖には" + str(player_be) + "人が接続しています。")
+	try:
+		BE_Status = BE_server.status()
+		player_be = BE_Status.players.online
+	except ConnectionRefusedError:
+		player_be = 0
+	except TimeoutError:
+		player_be = 0
+	await interaction.followup.send("現在JE鯖には" + str(player_je) + "人が、BE鯖には" + str(player_be) + "人が接続しています。")
 	return
 
 #終了処理
