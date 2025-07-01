@@ -44,6 +44,7 @@
 #2025/05/29 v6 - 同時接続数監視のバグ修正
 #2025/06/02 v7 - BEサポートを追加、接続数コマンド実装、接続数の監視方法をMCStatusに変更
 #2025/06/16 v8 - MCStatusの例外処理実装
+#2025/07/01 v9 - 復帰時のkillコマンドの例外追加
 
 #Discord類のインポート
 import discord # type: ignore
@@ -184,11 +185,19 @@ async def on_ready():
 			print("プロセスを再開しました")
 		except subprocess.CalledProcessError:
 			print("プロセス指定不可")
+		except TypeError:
+			print("プロセス指定不可")
+		except ValueError:
+			print("プロセス指定不可")
 		#BE
 		try:
 			subprocess.run(["kill", "-CONT", process_id_be], check = True)
 			print("プロセスを再開しました")
 		except subprocess.CalledProcessError:
+			print("プロセス指定不可")
+		except TypeError:
+			print("プロセス指定不可")
+		except ValueError:
 			print("プロセス指定不可")
 		resume = True
 		intosleep = False
