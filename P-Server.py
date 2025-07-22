@@ -45,6 +45,7 @@
 #2025/06/02 v7 - BEサポートを追加、接続数コマンド実装、接続数の監視方法をMCStatusに変更
 #2025/06/16 v8 - MCStatusの例外処理実装
 #2025/07/01 v9 - 復帰時のkillコマンドの例外追加
+#2025/07/22 v10 - 起動コマンドの変数をdirectory変数を参照する物に変更
 
 #Discord類のインポート
 import discord # type: ignore
@@ -78,24 +79,26 @@ process_name_be: str = "bedrock_server"	#プロセス名指定
 Manage_Channel: str = "うんち"	#書き込み先
 directory: str = "/home/krsw/.minecraft"	#対象ディレクトリ
 directory_be: str = "/home/krsw/Minecraft_Bedrock"	#対象ディレクトリ
+#JE鯖起動コマンド
 command: str = (
 		"mate-terminal",	#DEの端末
 		"--maximize",	#最大化
 		"--command",	#以下のコマンドを実行する
-		"java -Xmx28G -jar /home/krsw/.minecraft/CatServer-universal.jar"	#鯖起動命令
-	)	#JE鯖起動コマンド
+		"java -Xmx28G -jar ", directory, "/CatServer-universal.jar"	#鯖起動命令
+	)
+#BE鯖起動コマンド
 be_start: str = (
 		"mate-terminal",	#DEの端末
 		"--maximize",	#最大化
-		"--working-directory=/home/krsw/Minecraft_Bedrock",	#カレントディレクトリ変更
-		"--", "bash",	#bashコアンドを宣言
-		"-c", "LD_LIBRARY_PATH=. ./bedrock_server; exec bash"	#bashコマンド
-	)	#BE鯖起動コマンド
+		"--working-directory=", directory_be,	#カレントディレクトリ変更
+		"--", "bash", "-c",	#bashコアンドを宣言
+		"LD_LIBRARY_PATH=. ", directory_be, ";"	#bashコマンド
+	)	
 backup: str = "/home/krsw/backup"	#バックアップ保存先
 backup_be: str = "/home/krsw/Minecraft_Bedrock/backup"	#バックアップ保存先
-port_a : int = 2783	#ポート番号その1(JEポート)
-port_b : int = 40298	#ポート番号その2(SSHポート)
-port_c : int = 43044	#ポート番号その3(BEポート)
+port_a: int = 2783	#ポート番号その1(JEポート)
+port_b: int = 40298	#ポート番号その2(SSHポート)
+port_c: int = 43044	#ポート番号その3(BEポート)
 sleep_timer: int = 10	#スリープ移行までの時間(分)
 cloud: str = "/home/krsw/MEGA"	#クラウドストレージの保存先
 cloud_swtich: bool = True	#クラウドに保存するか
@@ -320,8 +323,15 @@ async def task():
 				if channel.name == Manage_Channel:
 					await channel.send(f'スリープモードに移行します\r\n復帰には/bootを使ってください')
 			print("スリープモード移行")
-			subprocess.run(["sudo", "systemctl", "suspend"], check = True)
-			task.stop()
+			try:
+				subprocess.run(["sudo", "systemctl", "suspend"], check = True)
+				task.stop()
+			except subprocess.CalledProcessError as e:
+				print("スリープ移行失敗")
+				for channel in client.get_all_channels():
+					if channel.name == Manage_Channel:
+						await channel.send(f'なんか知らんがスリープ出来ないぞ visudoとかの仕込みちゃんとしたか?\r\n例外内容:\r\n{e}')
+				auto_sleep = False	#スリープモード移行失敗時は自動スリープを無効化
 	#復帰フラグ解除
 	if resume == True and sleep > 5:
 		print("待機時間終わり!")
