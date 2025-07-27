@@ -46,6 +46,7 @@
 #2025/06/16 v8 - MCStatusの例外処理実装
 #2025/07/01 v9 - 復帰時のkillコマンドの例外追加
 #2025/07/22 v10 - 起動コマンドの変数をdirectory変数を参照する物に変更
+#2025/07/27 v11 - 起動コマンドのガバ修正
 
 #Discord類のインポート
 import discord # type: ignore
@@ -84,16 +85,15 @@ command: str = (
 		"mate-terminal",	#DEの端末
 		"--maximize",	#最大化
 		"--command",	#以下のコマンドを実行する
-		"java -Xmx28G -jar ", directory, "/CatServer-universal.jar"	#鯖起動命令
+		f"java -Xmx28G -jar {directory}/CatServer-universal.jar"	#鯖起動命令
 	)
 #BE鯖起動コマンド
 be_start: str = (
 		"mate-terminal",	#DEの端末
 		"--maximize",	#最大化
-		"--working-directory=", directory_be,	#カレントディレクトリ変更
 		"--", "bash", "-c",	#bashコアンドを宣言
-		"LD_LIBRARY_PATH=. ", directory_be, ";"	#bashコマンド
-	)	
+		"LD_LIBRARY_PATH=. ./bedrock_server;"	#bashコマンド
+	)
 backup: str = "/home/krsw/backup"	#バックアップ保存先
 backup_be: str = "/home/krsw/Minecraft_Bedrock/backup"	#バックアップ保存先
 port_a: int = 2783	#ポート番号その1(JEポート)
@@ -515,7 +515,7 @@ async def com_start(interaction: discord.Interaction, boot: str):
 			#鯖起動
 			try:
 				print("起動命令送信")
-				subprocess.Popen(be_start)	#起動聖句
+				subprocess.Popen(be_start, cwd = directory_be)	#起動聖句
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
 						await channel.send(f'BE鯖の起動命令を送ったナリよ')
