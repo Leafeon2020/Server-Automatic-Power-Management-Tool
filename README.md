@@ -47,7 +47,7 @@ HibernateState=disk
 HybridSleepMode=suspend platform shutdown
 HybridSleepState=disk
 ```
-*元々ハイブリッドスリープを使う予定でやってたが途中で無理なのに気づいて通常のS3ステートのスリープに切り替えてるのでハイバーネートとかハイブリッドスリープとかは必要無いと思います*
+*元々ハイブリッドスリープ([S4ステート](https://learn.microsoft.com/ja-jp/windows-hardware/drivers/kernel/system-sleeping-states#system-power-state-s4))を使う予定でやっていましたが、途中で無理なのに気づいて通常の[S3ステート](https://learn.microsoft.com/ja-jp/windows-hardware/drivers/kernel/system-sleeping-states#system-power-state-s3)のスリープに切り替えてるのでハイバーネートとかハイブリッドスリープとかは必要無いと思います。*
 
 3. Wake on LANの設定をします
 
