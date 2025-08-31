@@ -47,6 +47,7 @@
 #2025/07/01 v9 - 復帰時のkillコマンドの例外追加
 #2025/07/22 v10 - 起動コマンドの変数をdirectory変数を参照する物に変更
 #2025/07/27 v11 - 起動コマンドのガバ修正
+#2025/08/31 v12 - バックアップ世代数制限機能追加
 
 #Discord類のインポート
 import discord # type: ignore
@@ -102,6 +103,7 @@ port_c: int = 43044	#ポート番号その3(BEポート)
 sleep_timer: int = 10	#スリープ移行までの時間(分)
 cloud: str = "/home/krsw/MEGA"	#クラウドストレージの保存先
 cloud_swtich: bool = True	#クラウドに保存するか
+backup_limit: int = 20	#バックアップ世代数
 
 #システム用変数 触るな
 global status
@@ -430,6 +432,13 @@ async def com_start(interaction: discord.Interaction, boot: str):
 					if cloud_backup != "":
 						os.remove(cloud + "/" + cloud_backup)
 					shutil.copy(backup + "/" + filename, cloud)
+				#古いバックアップ削除
+				files = glob.glob(f"{backup}/world-????????-??????.tar.xz")
+				if len(files) > backup_limit:
+					files.sort(key=os.path.getmtime)
+					for file in files[:-backup_limit]:
+						os.remove(file)
+						print(f"古いバックアップファイルを削除しました: {file}")
 			#例外処理
 			except subprocess.CalledProcessError as e:
 				print("圧縮例外\r\n" + e)
@@ -499,6 +508,13 @@ async def com_start(interaction: discord.Interaction, boot: str):
 					if cloud_backup != "":
 						os.remove(cloud + "/" + cloud_backup)
 					shutil.copy(backup_be + "/" + filename, cloud)
+				#古いバックアップ削除
+				files = glob.glob(f"{backup_be}/be-world-????????-??????.tar.xz")
+				if len(files) > backup_limit:
+					files.sort(key=os.path.getmtime)
+					for file in files[:-backup_limit]:
+						os.remove(file)
+						print(f"古いバックアップファイルを削除しました: {file}")
 			#例外処理
 			except subprocess.CalledProcessError as e:
 				print("圧縮例外\r\n" + e)
