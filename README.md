@@ -1,3 +1,4 @@
+![GitHub License](https://img.shields.io/github/license/Leafeon2020/Server-Automatic-Power-Management-Tool)
 # サーバー電源管理Bot
 DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 
