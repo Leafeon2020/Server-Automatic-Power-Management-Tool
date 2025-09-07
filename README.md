@@ -92,9 +92,10 @@ sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv ve
 |Manage_Channel|Botが書き込むチャンネル|両方|
 |process_name|Botに監視させたいプロセス名|P-Server|
 |directory|操作対象ディレクトリ|P-Server|
-|command|startコマンドで実行するコマンド ※管理目的でGUI環境の端末を呼び出してますがCLIで起動も可|P-Server|
+|command|startコマンドで実行するコマンド(JE) ※管理目的でGUI環境の端末を呼び出してますがCLIで起動も可|P-Server|
 |be_start|startコマンドで実行するコマンド(BE版)|P-Server|
-|backup|バックアップ先|P-Server|
+|backup|バックアップ先(JE)|P-Server|
+|backup_be|バックアップ先(BE)|P-Server|
 |port_a、port_b、port_c|接続数監視ポート|P-Server|
 |cloud|最新のバックアップを保存する場所|P-Server|
 |host|pingを送る対象のアドレス|E-Server|
