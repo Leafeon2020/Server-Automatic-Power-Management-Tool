@@ -3,7 +3,7 @@
 
 #起動の前に 以下の環境が必要になります
 #OS:Linux
-#Pythonライブラリ:discord.py、watchfiles、MCStatus
+#Pythonライブラリ:discord.py、watchfiles、MCStatus、requests、beautifulsoup4
 #必要な外部ソフト:pixz
 
 #仕様メモ
@@ -49,6 +49,7 @@
 #2025/07/27 v11 - 起動コマンドのガバ修正
 #2025/08/31 v12 - バックアップ世代数制限機能追加
 #2025/09/07 v13 - バックアップ世代数制限のON/OFFフラグ追加
+#2025/11/19 v14 - BE鯖アプデ機能と強制バックアップ追加
 
 #Discord類のインポート
 import discord # type: ignore
@@ -59,6 +60,8 @@ from discord.app_commands import describe	# type: ignore
 from watchfiles import awatch	# type: ignore
 from mcstatus import JavaServer	# type: ignore
 from mcstatus import BedrockServer	# type: ignore
+import requests	# type: ignore
+from bs4 import BeautifulSoup	# type: ignore
 #システム系のインポート
 import os
 import re
@@ -101,6 +104,7 @@ backup_be: str = "/home/krsw/Minecraft_Bedrock/backup"	#バックアップ保存
 port_a: int = 2783	#ポート番号その1(JEポート)
 port_b: int = 40298	#ポート番号その2(SSHポート)
 port_c: int = 43044	#ポート番号その3(BEポート)
+port_d: int = 5900	#ポート番号その4(VNCポート)
 sleep_timer: int = 10	#スリープ移行までの時間(分)
 cloud: str = "/home/krsw/MEGA"	#クラウドストレージの保存先
 cloud_swtich: bool = True	#クラウドに保存するか
@@ -291,6 +295,9 @@ async def task():
 			counter += 0
 		except TimeoutError:
 			counter += 0
+		#VNC
+		vnc = subprocess.run("ss -tn sport = :" + str(port_d) +" | wc -l",shell = True, capture_output=True, text=True)
+		counter += int(vnc.stdout.strip()) - 1
 		#誰も居ない時
 		if counter == 0:
 			sleep += 1
@@ -481,6 +488,7 @@ async def com_start(interaction: discord.Interaction, boot: str):
 		return
 	elif boot == "BE":
 		global status_be
+		send_flag: bool = False	#メッセージ送信フラグ
 		print("BE起動プロセス開始")
 		try:
 			subprocess.run(["pgrep", process_name_be], check=True)
@@ -489,9 +497,53 @@ async def com_start(interaction: discord.Interaction, boot: str):
 			status_be = 0	#死亡フラグ
 		#起動処理
 		if status_be == 0:
+			url = "https://www.minecraft.net/ja-jp/download/server/bedrock"
+			response = requests.get(url)
+			soup = BeautifulSoup(response.text, 'html.parser')
+			binary_link = soup.find('a', class_='MC_Download_Server_2')['href']
+			bainary_name = binary_link.split('/')[-1]
+			file_list = os.listdir(directory_be)
+			zip_file: str = "bedrock-server-"
+			for file in file_list:
+				if zip_file in file:
+					file_name = file
+			#実行ファイルの確認・アプデ周り
+			if not os.path.isfile(directory_be + '/' + bainary_name):
+				await interaction.response.send_message("おい、BE鯖のデータが無いぞ\r\nという事でDLするナリよ～")
+				send_flag = True
+				#実行ファイルダウンロード
+				response = requests.get(binary_link)
+				with open(directory_be + '/' + bainary_name, 'wb') as f:
+					f.write(response.content)
+				for channel in client.get_all_channels():
+					if channel.name == Manage_Channel:
+						await channel.send("DL完了")
+			elif file_name != bainary_name:
+				await interaction.response.send_message("BE鯖のアプデがあったぞ")
+				send_flag = True
+				#既存ファイル削除
+				os.remove(directory_be + '/' + file_name)
+				#実行ファイルダウンロード
+				response = requests.get(binary_link)
+				shutil.unpack_archive(directory_be + '/' + bainary_name, directory_be + "/binary_temp")
+				#必要なやつだけコピー
+				shutil.copytree(directory_be + "/binary_temp/bedrock_server/behavior_packs", directory_be + "/bedrock_server", dirs_exist_ok=True)
+				shutil.copytree(directory_be + "/binary_temp/bedrock_server/resource_packs", directory_be + "/bedrock_server", dirs_exist_ok=True)
+				shutil.copytree(directory_be + "/binary_temp/bedrock_server/definitions", directory_be + "/bedrock_server", dirs_exist_ok=True)
+				shutil.copy2(directory_be + "/binary_temp/bedrock_server/bedrock_server", directory_be + "/bedrock_server", dirs_exist_ok=True)
+				shutil.rmtree(directory_be + "/binary_temp")	#temp削除
+				for channel in client.get_all_channels():
+					if channel.name == Manage_Channel:
+						await channel.send("アプデ完了")
 			print("鯖が死んでたので起動")
 			status_be = 2	#ステータスを起動処理中にする
-			await interaction.response.send_message("起動処理を実行します")
+			#フラグで送信方法変更
+			if send_flag == False:	#返信で対応
+				await interaction.response.send_message("起動処理を実行します")
+			else:	#新規送信で対応
+				for channel in client.get_all_channels():
+					if channel.name == Manage_Channel:
+						await channel.send("起動処理を実行します")
 			#バックアップ生成
 			try:
 				#ファイル名生成
@@ -640,6 +692,70 @@ async def sleep_switch(interaction: discord.Interaction, switch: bool):
 		auto_sleep = False
 		await interaction.response.send_message(f'オートスリープを無効にしました')
 		print("設定変更:オートスリープ無効")
+
+#強制バックアップ
+@tree.command(name="force-backup", description="バックアップ処理を強制実行します")
+@describe(target="対象")
+@app_commands.autocomplete(target=version_autocomplete)
+@discord.app_commands.default_permissions(administrator=True)
+async def force_backup(interaction: discord.Interaction, target: str):
+	try:
+		if not target != "JE" and target != "BE":
+			await interaction.response.send_message(f'その引数は無効っスよ')
+		else:
+			await interaction.response.defer()
+			#ファイル名生成
+			timestamp: str = datetime.now().strftime("%Y%m%d-%H%M%S")
+			if target == "JE":
+				filename: str = f"world-{timestamp}.tar.xz"
+			elif target == "BE":
+				filename: str = f"be-world-{timestamp}.tar.xz"
+			#.tar.xzで圧縮
+			print("圧縮開始")
+			if target == "JE":
+				subprocess.run(["tar", "-I", "pixz", "-cvpf", filename, "-C", directory + "/world", "./"], check=True, cwd = backup)	#pixzに投げる
+			elif target == "BE":
+				subprocess.run(["tar", "-I", "pixz", "-cvpf", filename, "-C", directory_be + "/worlds", "./world"], check=True, cwd = backup_be)	#pixzに投げる
+			print("xzで圧縮")
+			await interaction.followup.send(f'バックアップを生成しました')
+			#クラウドにバックアップするか
+			if cloud_swtich == True:
+				if target == "JE":
+					cloud_backup: str = get_latest_backup_file(cloud, 0)	#既存バックアップ名取得(JE)
+				elif target == "BE":
+					cloud_backup: str = get_latest_backup_file(cloud, 1)	#既存バックアップ名取得(BE)
+				#バックアップが既にある場合は消去してコピー
+				if cloud_backup != "":
+					os.remove(cloud + "/" + cloud_backup)
+				shutil.copy(backup + "/" + filename, cloud)
+			#古いバックアップ削除
+			if backup_remove == True:
+				if target == "JE":
+					files = glob(f"{backup}/world-????????-??????.tar.xz")
+					if len(files) > backup_limit:
+						files.sort(key=os.path.getmtime)
+						for file in files[:-backup_limit]:
+							os.remove(file)
+							print(f"古いバックアップファイルを削除しました: {file}")
+				elif target == "BE":
+					files = glob(f"{backup_be}/be-world-????????-??????.tar.xz")
+					if len(files) > backup_limit:
+						files.sort(key=os.path.getmtime)
+						for file in files[:-backup_limit]:
+							os.remove(file)
+							print(f"古いバックアップファイルを削除しました: {file}")
+	#例外処理
+	except subprocess.CalledProcessError as e:
+		print("圧縮例外\r\n" + e)
+		for channel in client.get_all_channels():
+			if channel.name == Manage_Channel:
+				await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
+				status = 0	#死んだ扱いにする
+	except Exception as e:
+			print(f"Exception\r\n" + e)
+			for channel in client.get_all_channels():
+				if channel.name == Manage_Channel:
+					await channel.send(f'なんかやらかしてるみたいですよ…\r\n詳細:{e}')
 
 #デバッグ用
 @tree.command(name="debug", description="状態変数を返します")
