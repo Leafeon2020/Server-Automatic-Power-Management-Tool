@@ -518,6 +518,7 @@ async def com_start(interaction: discord.Interaction, boot: str):
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
 						await channel.send("DL完了")
+			#アプデ
 			elif file_name != bainary_name:
 				await interaction.response.send_message("BE鯖のアプデがあったぞ")
 				send_flag = True
@@ -527,10 +528,10 @@ async def com_start(interaction: discord.Interaction, boot: str):
 				response = requests.get(binary_link)
 				shutil.unpack_archive(directory_be + '/' + bainary_name, directory_be + "/binary_temp")
 				#必要なやつだけコピー
-				shutil.copytree(directory_be + "/binary_temp/bedrock_server/behavior_packs", directory_be + "/bedrock_server", dirs_exist_ok=True)
-				shutil.copytree(directory_be + "/binary_temp/bedrock_server/resource_packs", directory_be + "/bedrock_server", dirs_exist_ok=True)
-				shutil.copytree(directory_be + "/binary_temp/bedrock_server/definitions", directory_be + "/bedrock_server", dirs_exist_ok=True)
-				shutil.copy2(directory_be + "/binary_temp/bedrock_server/bedrock_server", directory_be + "/bedrock_server", dirs_exist_ok=True)
+				shutil.copytree(directory_be + "/binary_temp/behavior_packs", directory_be + "/bedrock_server", dirs_exist_ok=True)
+				shutil.copytree(directory_be + "/binary_temp/resource_packs", directory_be + "/bedrock_server", dirs_exist_ok=True)
+				shutil.copytree(directory_be + "/binary_temp/definitions", directory_be + "/bedrock_server", dirs_exist_ok=True)
+				shutil.copy2(directory_be + "/binary_temp/bedrock_server", directory_be + "/bedrock_server", dirs_exist_ok=True)
 				shutil.rmtree(directory_be + "/binary_temp")	#temp削除
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
@@ -750,7 +751,6 @@ async def force_backup(interaction: discord.Interaction, target: str):
 		for channel in client.get_all_channels():
 			if channel.name == Manage_Channel:
 				await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
-				status = 0	#死んだ扱いにする
 	except Exception as e:
 			print(f"Exception\r\n" + e)
 			for channel in client.get_all_channels():
