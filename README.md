@@ -24,6 +24,8 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 - [pixz](https://github.com/vasi/pixz)
 - [watchfile](https://github.com/samuelcolvin/watchfiles)
 - [MCStatus](https://github.com/py-mine/mcstatus)
+- [requests](https://github.com/psf/requests)
+- [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/)
 - Wake on LANに対応したハードウェア
 ### E-Serverに必要
 - [wakeonlan](https://github.com/jpoliv/wakeonlan)
@@ -68,7 +70,7 @@ Python、watchfile、pixz、discord.py、MCStatusを導入します。
 
 P-Server用
 ```sh
-sudo apt update && sudo apt install -y pixz python3.12 watchfile && pip install -U pip && pip install discord.py mcstatus
+sudo apt update && sudo apt install -y pixz python3.12 watchfile && pip install -U pip && pip install discord.py mcstatus requests beautifulsoup4
 ```
 E-Server用 *テスト環境がRaspberry Piなのでvenvまで書いてます*
 ```sh
@@ -96,7 +98,7 @@ sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv ve
 |be_start|startコマンドで実行するコマンド(BE版)|P-Server|
 |backup|バックアップ先(JE)|P-Server|
 |backup_be|バックアップ先(BE)|P-Server|
-|port_a、port_b、port_c|接続数監視ポート|P-Server|
+|port_a、port_b、port_c、port_d|接続数監視ポート|P-Server|
 |cloud|最新のバックアップを保存する場所|P-Server|
 |host|pingを送る対象のアドレス|E-Server|
 |mac|Wake on LANを送るMACアドレス|E-Server|
@@ -125,8 +127,9 @@ DiscordのBotは以下のコマンドを受け付けます。
 |----|----|----|
 |start|環境変数で指定したバックアップ先にワールドデータのバックアップを生成した後にcommandを実行 JEかBEか選択可|P-Server|
 |status|process_nameで指定したプロセスが生きてるかを確認 JEかBEか選択可|P-Server|
-|auto-sleep|自動スリープの有効化・無効化|P-Server|
+|auto-sleep|自動スリープの有効化・無効化 ※要管理者権限|P-Server|
 |players|プレイヤー数を取得|P-Server|
+|force-backup|強制バックアップ JEかBEか選択可 ※要管理者権限|P-Server|
 |boot|macで指定したMACアドレスにWake on LANのマジックパケットを送信します|E-Server|
 |ping|hostに指定したアドレスにpingを送って死活確認をします|E-Server|
 |debug|内部で使ってる変数の中身を吐きます(定期確認で使っている物なのでリアルタイムの物ではありません)|両方|
