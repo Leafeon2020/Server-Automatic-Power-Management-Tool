@@ -65,7 +65,7 @@ nmcli c modify "<有線接続名>" 802-3-ethernet.wake-on-lan magic
 後はUEFI側でWake on LANを有効化してください。物によって設定方法が違うのでこれは省略。全ての設定を終えたら一度再起動。
 
 5. 諸々の前提ソフトを導入
-Python、watchfile、pixz、discord.py、MCStatusを導入します。  
+Python、watchfile、pixz、discord.py、MCStatus、requests、Beautiful Soupを導入します。  
 邪魔くさい人向けに一括でセットアップ出来るコマンドを貼っておきます **※無保証**
 
 P-Server用
@@ -92,8 +92,10 @@ sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv ve
 |----|----|----|
 |TOKEN|先程取得したBotのトークン|両方|
 |Manage_Channel|Botが書き込むチャンネル|両方|
-|process_name|Botに監視させたいプロセス名|P-Server|
-|directory|操作対象ディレクトリ|P-Server|
+|process_name|Botに監視させたいプロセス名(JE)|P-Server|
+|process_name_be|Botに監視させたいプロセス名(BE)|P-Server|
+|directory|操作対象ディレクトリ(JE)|P-Server|
+|directory_be|操作対象ディレクトリ(BE)|P-Server|
 |command|startコマンドで実行するコマンド(JE) ※管理目的でGUI環境の端末を呼び出してますがCLIで起動も可|P-Server|
 |be_start|startコマンドで実行するコマンド(BE版)|P-Server|
 |backup|バックアップ先(JE)|P-Server|
@@ -110,7 +112,7 @@ sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv ve
 
 8. visudoを編集する
 
-スリープモードをコマンドからするためにはroot権限が必要なのだが、visudoを編集する事でパスワード入力を省略して実行出来る環境にする必要がある。  
+スリープモードをコマンドからするためにはroot権限が必要なのだが、visudoを編集する事でパスワード入力を省略して実行出来る環境にする必要があります。  
 visudoに以下の記述を追加する。※(USERNAME)は各自のユーザー名に変更する事
 ```ini
 (USERNAME) ALL=NOPASSWD: /usr/bin/systemctl suspend
