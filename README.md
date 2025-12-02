@@ -5,6 +5,17 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 まず初めに書いて置きますが、僕はこの手のプログラムを書くのが初めてなので読みにくかったらもうしわけありません。([尊師リスペクト](https://krsw-wiki.in/wiki/?curid=1367))  
 
 ## 動作概要
+### 超概略
+このDiscordのBotは以下の機能を提供します。
+- 接続無しの場合に自動スリープする
+- DiscordのBot経由でサーバーマシンを起動する
+- クラッシュログの自動出力(MOD環境向け)
+- 統合版サーバーの自動アップデート
+- DiscordのBot経由でMinecraftサーバーの起動(JE・BE両対応)
+- サーバー起動時の自動バックアップ機能
+- Discordからの強制バックアップ機能
+
+### 普通の概略
 本プログラムはサーバープログラム本体を動かす大きいサーバー(P-Server)と電源管理をする小さいサーバー(E-Server)の2台を必要とします。  
 要となる小さいサーバーは最低限の機能だけで良いため、Raspberry Piなどでも稼働します。テストマシンはRaspberry Pi 3Bです。  
 双方のサーバーがDiscord上で動作し、スラッシュコマンドによってP-Serverを制御する形になります。  
@@ -24,8 +35,11 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 - [pixz](https://github.com/vasi/pixz)
 - [watchfile](https://github.com/samuelcolvin/watchfiles)
 - [MCStatus](https://github.com/py-mine/mcstatus)
-- [requests](https://github.com/psf/requests)
-- [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/)
+- [Requests](https://github.com/psf/requests)
+- [Selenium](https://www.selenium.dev/ja/)
+- [Firefox](https://www.firefox.com/ja/)
+- [geckodriver](https://github.com/mozilla/geckodriver)
+- 各種デスクトップ環境(デフォルトでは[MATE](https://mate-desktop.org/ja/)の記述になっています)
 - Wake on LANに対応したハードウェア
 ### E-Serverに必要
 - [wakeonlan](https://github.com/jpoliv/wakeonlan)
@@ -65,12 +79,12 @@ nmcli c modify "<有線接続名>" 802-3-ethernet.wake-on-lan magic
 後はUEFI側でWake on LANを有効化してください。物によって設定方法が違うのでこれは省略。全ての設定を終えたら一度再起動。
 
 5. 諸々の前提ソフトを導入
-Python、watchfile、pixz、discord.py、MCStatus、requests、Beautiful Soupを導入します。  
+Python、watchfile、pixz、discord.py、MCStatus、requests、Seleniumを導入します。  
 邪魔くさい人向けに一括でセットアップ出来るコマンドを貼っておきます **※無保証**
 
 P-Server用
 ```sh
-sudo apt update && sudo apt install -y pixz python3.12 watchfile && pip install -U pip && pip install discord.py mcstatus requests beautifulsoup4
+sudo apt update && sudo apt install -y pixz python3.12 watchfile && sudo snap insatll firefox geckodriver && pip install -U pip && pip install discord.py mcstatus requests selenium
 ```
 E-Server用 *テスト環境がRaspberry Piなのでvenvまで書いてます*
 ```sh
@@ -141,15 +155,13 @@ DiscordのBotは以下のコマンドを受け付けます。
 本プログラムは1分を単位として処理しています。そのため、各種死活確認と接続数は1分単位で再取得しているため即座に反応する事はありません。*ただしクラッシュログ監視を除く*  
 割と実装が雑なんで変な呼び出し方してます。Linux限定なのは10割subprocessで呼び出してる外部コマンドのせいなのでそれだけ対応したらWindowsでも動きます。  
 スリープからの復帰はdiscord.pyのon_readyイベントを使ったズボラ実装なので復帰から諸々の処理が入るのは時間がかかります。  
-[改造版CatServer](https://github.com/Leafeon2020/CatServer)にWatchdogを無効化するために制御用ファイルを生成します。中身は1バイトのテキストです。
+[改造版CatServer](https://github.com/Leafeon2020/CatServer)にWatchdogを無効化するために制御用ファイルを生成します。中身は1バイトのテキストです。  
+BEのアップデートには[Javascriptを用いて動的にURLを生成しているサイト](https://www.minecraft.net/ja-jp/download/server/bedrock)に対応するためにFirefox+Seleniumを利用しています。元々GUI環境向けの記述になりますが、一応CLI環境用の改造も可能です。Beautiful Soup4+Requestsでは処理出来なかったためこのような形になりました。
 
-## 既存の問題
+## 既知の問題
 - スリープモードに入った直後に復帰させると復帰時の処理が行われない
     - 原因:復帰時の処理にdiscord.pyのon_readyイベントでDiscordに再接続した時をトリガーとして処理しているため ~~要はスボラ実装の犠牲~~
     - 対策:スリープモードになった直後に/bootコマンドを使わない 接続が切れる必要があるので数分待つ必要がありそうです
-- BE鯖自動アプデが機能しない
-    - 多分Webページ側の問題なのでseleniumで拾う方向で現在修正中
-    - requestで拾おうとするとタイムアウトが発生しているので恐らくbot弾きをWebページ側でしている可能性がある
 
 ## 連絡先
 基本無保証ですが何かあったら[Misskey](https://misskey.nukumori-sky.net/@krsw)にでも書いてください。反応したりしなかったりします。
