@@ -3,8 +3,8 @@
 
 #起動の前に 以下の環境が必要になります
 #OS:Linux
-#Pythonライブラリ:discord.py、watchfiles、MCStatus、requests、beautifulsoup4
-#必要な外部ソフト:pixz
+#Pythonライブラリ:discord.py、watchfiles、MCStatus、Selenium、requests
+#必要な外部ソフト:pixz、Firefox、geckodriver
 
 #仕様メモ
 #改行コードはとりあえずCR+LFで統一してます OSはLinuxですがWindows方言だと多分どのOSでも問題無いかと
@@ -25,6 +25,7 @@
 #復帰時の待機時間は長めに取っておいたほうがいいです kill -CONTを飛ばしてから実際にプロセスが動き出すまで結構時間掛かってる感じがしたので1分待機させてます
 #クラッシュした時の対策とかも兼ねて自動再起動は入れてません(というよりSpigot側に実装されてる)
 #JEBE両対応してますが別にどちらか片方だけでも(多分)例外吐かずに動きます
+#Firefoxはsnap版の前提になってます 多分OSのデフォで入ってるやつはsnap版です(確証無し) ちなみにテスト環境はUbuntu Server 24.04 LTSにLDMとMATE仕込んだ環境です
 
 #開発用メモ
 #コマンドを呼び出した後はawait interaction.response.send_message("メッセージ")で返信しないと応答無し扱いになる
@@ -50,6 +51,7 @@
 #2025/08/31 v12 - バックアップ世代数制限機能追加
 #2025/09/07 v13 - バックアップ世代数制限のON/OFFフラグ追加
 #2025/11/19 v14 - BE鯖アプデ機能と強制バックアップ追加
+#2025/12/02 v15 - BE鯖公式ページの仕様に対応
 
 #Discord類のインポート
 import discord # type: ignore
@@ -60,16 +62,20 @@ from discord.app_commands import describe	# type: ignore
 from watchfiles import awatch	# type: ignore
 from mcstatus import JavaServer	# type: ignore
 from mcstatus import BedrockServer	# type: ignore
-import requests	# type: ignore
-from bs4 import BeautifulSoup	# type: ignore
+import selenium	# type: ignore
+from selenium import webdriver  #type: ignore
+from selenium.webdriver.firefox.service import Service	#type: ignore
+from selenium.webdriver.common.by import By #type: ignore
+import requests
 #システム系のインポート
 import os
 import re
-from glob import glob
-from datetime import datetime
+import glob
+import datetime
 import subprocess
 import shutil
 import asyncio
+from urllib.parse import urlparse
 
 #初期設定
 intents = discord.Intents.default()	#反応イベント指定
@@ -134,6 +140,8 @@ switch_file: str = directory + "/sleep_switch.txt"	#watchdog制御用ファイ�
 JE_server = JavaServer.lookup("localhost:" + str(port_a))	#JE鯖の読み込み
 BE_server = BedrockServer.lookup("localhost:" + str(port_c))	#BE鯖の読み込み
 type = ["JE", "BE"]	#引数用
+firefox_bin: str = "/snap/firefox/current/usr/lib/firefox/firefox"	#Firefox実行ファイルパス
+firefoxdriver_bin: str = "/snap/firefox/current/usr/lib/firefox/geckodriver"	#GeckoDriver実行ファイルパス
 
 #オートコンプリート関数
 async def version_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -487,6 +495,7 @@ async def com_start(interaction: discord.Interaction, boot: str):
 			await interaction.response.send_message(f'JE鯖、生きてるってよ')
 		return
 	elif boot == "BE":
+		await interaction.response.defer()
 		global status_be
 		send_flag: bool = False	#メッセージ送信フラグ
 		print("BE起動プロセス開始")
@@ -497,45 +506,96 @@ async def com_start(interaction: discord.Interaction, boot: str):
 			status_be = 0	#死亡フラグ
 		#起動処理
 		if status_be == 0:
-			url = "https://www.minecraft.net/ja-jp/download/server/bedrock"
-			response = requests.get(url)
-			soup = BeautifulSoup(response.text, 'html.parser')
-			binary_link = soup.find('a', class_='MC_Download_Server_2')['href']
-			bainary_name = binary_link.split('/')[-1]
-			file_list = os.listdir(directory_be)
-			zip_file: str = "bedrock-server-"
-			for file in file_list:
-				if zip_file in file:
-					file_name = file
-			#実行ファイルの確認・アプデ周り
-			if not os.path.isfile(directory_be + '/' + bainary_name):
-				await interaction.response.send_message("おい、BE鯖のデータが無いぞ\r\nという事でDLするナリよ～")
-				send_flag = True
-				#実行ファイルダウンロード
-				response = requests.get(binary_link)
-				with open(directory_be + '/' + bainary_name, 'wb') as f:
-					f.write(response.content)
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send("DL完了")
-			#アプデ
-			elif file_name != bainary_name:
-				await interaction.response.send_message("BE鯖のアプデがあったぞ")
-				send_flag = True
-				#既存ファイル削除
-				os.remove(directory_be + '/' + file_name)
-				#実行ファイルダウンロード
-				response = requests.get(binary_link)
-				shutil.unpack_archive(directory_be + '/' + bainary_name, directory_be + "/binary_temp")
-				#必要なやつだけコピー
-				shutil.copytree(directory_be + "/binary_temp/behavior_packs", directory_be + "/bedrock_server", dirs_exist_ok=True)
-				shutil.copytree(directory_be + "/binary_temp/resource_packs", directory_be + "/bedrock_server", dirs_exist_ok=True)
-				shutil.copytree(directory_be + "/binary_temp/definitions", directory_be + "/bedrock_server", dirs_exist_ok=True)
-				shutil.copy2(directory_be + "/binary_temp/bedrock_server", directory_be + "/bedrock_server", dirs_exist_ok=True)
-				shutil.rmtree(directory_be + "/binary_temp")	#temp削除
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send("アプデ完了")
+			print("BE鯖アプデ確認")
+			#SeleniumのFirefox仕込み
+			options = webdriver.firefox.options.Options()
+			options.add_argument('--headless')	#ヘッドレスモード
+			options.binary_location = firefox_bin	#なんか知らんがsnap版だとこれじゃないと動かないんだとか
+			driver = webdriver.Firefox(service=Service(firefoxdriver_bin), options=options)
+			try:
+				#MC公式からHTML取得
+				driver.get("https://www.minecraft.net/ja-jp/download/server/bedrock")
+				await asyncio.sleep(5)	#ページ読み込み待ち
+				binary_url = driver.find_element(By.ID, "MC_Download_Server_2").get_attribute("href")	#URL取得
+				driver.quit()	#ブラウザ終了
+				print("BE鯖URL取得完了: " + binary_url)
+				binary_name = os.path.basename(urlparse(binary_url).path)	#ファイル名抽出
+				#既存ファイル名取得
+				file_list = os.listdir(directory_be)
+				zip_file: str = "bedrock-server-"
+				for file in file_list:
+					if zip_file in file:
+						file_name = file
+				print("ファイル名取得完了: " + binary_name)
+				print("ファイル名比較\r\nローカル:" + file_name + "\r\nサーバー:" + binary_name)
+				#実行ファイルの確認・アプデ周り
+				if not os.path.isfile(directory_be + '/' + binary_name):
+					await interaction.followup.send("おい、BE鯖のデータが無いぞ\r\nという事でDLするナリよ～")
+					print("BE鯖が無いのでDL")
+					send_flag = True
+					#実行ファイルダウンロード
+					response = requests.get(binary_url).content
+					#展開
+					with open(directory_be + '/' + binary_name, 'wb') as f:
+						f.write(response.content)
+					#通知
+					for channel in client.get_all_channels():
+						if channel.name == Manage_Channel:
+							await channel.send("DL完了")
+				#アプデ
+				elif file_name != binary_name:
+					await interaction.followup.send("BE鯖のアプデがあったぞ")
+					print("BE鯖のアプデを実行")
+					send_flag = True
+					#既存ファイル削除
+					os.remove(directory_be + '/' + file_name)
+					#実行ファイルダウンロード
+					response = requests.get(binary_url).content
+					shutil.unpack_archive(directory_be + '/' + binary_name, directory_be + "/binary_temp")
+					#必要なやつだけコピー
+					shutil.copytree(directory_be + "/binary_temp/behavior_packs", directory_be, dirs_exist_ok=True)
+					shutil.copytree(directory_be + "/binary_temp/resource_packs", directory_be, dirs_exist_ok=True)
+					shutil.copytree(directory_be + "/binary_temp/definitions", directory_be, dirs_exist_ok=True)
+					shutil.copy2(directory_be + "/binary_temp/profanity_filter.wlist", directory_be, dirs_exist_ok=True)
+					shutil.copy2(directory_be + "/binary_temp/release-notes.txt", directory_be, dirs_exist_ok=True)
+					shutil.copy2(directory_be + "/binary_temp/bedrock_server_how_to.html", directory_be, dirs_exist_ok=True)
+					shutil.copy2(directory_be + "/binary_temp/bedrock_server", directory_be, dirs_exist_ok=True)
+					shutil.rmtree(directory_be + "/binary_temp")	#temp削除
+					#通知
+					for channel in client.get_all_channels():
+						if channel.name == Manage_Channel:
+							await channel.send("アプデ完了")
+			#例外処理
+			except requests.exceptions.HTTPError as e:
+				await interaction.followup.send("HTTPエラー\r\n例外内容:" + str(e))
+				print("HTTPエラー:" + str(e))
+			except requests.exceptions.Timeout:
+				await interaction.followup.send("どうしてタイムアウトなんてするんですか(現場猫)\r\n例外内容:" + str(e))
+				print("タイムアウト:" + str(e))
+			except requests.exceptions.RequestException as e:
+				await interaction.followup.send("なんか知らんがBE鯖のアプデ確認に失敗しました\r\n例外内容:" + str(e))
+				print("BE鯖アプデ確認失敗:" + str(e))
+			except selenium.no_such_element_exception.NoSuchElementException as e:
+				await interaction.followup.send("多分HTML構造変わってる気がする\r\n例外内容:" + str(e))
+				print("HTML構造変更?:" + str(e))
+			except selenium.timeout_exception.TimeoutException as e:
+				await interaction.followup.send("通信が遅すぎますね…(タイムアウト)\r\n例外内容:" + str(e))
+				print("タイムアウト:" + str(e))
+			except selenium.web_driver_exception.WebDriverException as e:
+				await interaction.followup.send("Firefoxが立ち上がらないんだがバイナリの指定間違えてない?\r\n例外内容:" + str(e))
+				print("Selenium起動失敗:" + str(e))
+			except selenium.invalid_selector_exception.InvalidSelectorException as e:
+				await interaction.followup.send("強引にURLを取得する荒業が対処されたっぽいですね…(URL抽出元ID変更)\r\n例外内容:" + str(e))
+				print("URL抽出元ID変更?" + str(e))
+			except selenium.webdriver_exception.WebDriverException as e:
+				await interaction.followup.send("Firefox周りでどうやらエラー吐いてるぞ\r\n例外内容:" + str(e))
+				print("Firefox周りで例外:" + str(e))
+			except selenium.exception.Exception as e:
+				await interaction.followup.send("Seleniumでよう分からん例外吐いた\r\n例外内容:" + str(e))
+				print("Selenium例外:" + str(e))
+			except Exception as e:
+				await interaction.followup.send("なんか知らんがBE鯖のアプデ確認に失敗しました\r\n例外内容:" + str(e))
+				print("例外:" + str(e))
 			print("鯖が死んでたので起動")
 			status_be = 2	#ステータスを起動処理中にする
 			#フラグで送信方法変更
