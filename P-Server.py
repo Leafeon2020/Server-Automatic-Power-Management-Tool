@@ -52,6 +52,7 @@
 #2025/09/07 v13 - バックアップ世代数制限のON/OFFフラグ追加
 #2025/11/19 v14 - BE鯖アプデ機能と強制バックアップ追加
 #2025/12/02 v15 - BE鯖公式ページの仕様に対応
+#2025/12/06 v16 - 削っちゃいけないとこ削ってたので修正
 
 #Discord類のインポート
 import discord # type: ignore
@@ -66,12 +67,12 @@ import selenium	# type: ignore
 from selenium import webdriver  #type: ignore
 from selenium.webdriver.firefox.service import Service	#type: ignore
 from selenium.webdriver.common.by import By #type: ignore
-import requests
+import requests	#type: ignore
 #システム系のインポート
 import os
 import re
-import glob
-import datetime
+from glob import glob
+from datetime import datetime
 import subprocess
 import shutil
 import asyncio
