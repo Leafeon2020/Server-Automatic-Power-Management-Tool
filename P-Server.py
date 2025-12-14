@@ -3,8 +3,8 @@
 
 #起動の前に 以下の環境が必要になります
 #OS:Linux
-#Pythonライブラリ:discord.py、watchfiles、MCStatus、Selenium、requests
-#必要な外部ソフト:pixz、Firefox、geckodriver
+#Pythonライブラリ:discord.py、watchfiles、MCStatus、Selenium
+#必要な外部ソフト:pixz、Firefox、geckodriver、wget
 
 #仕様メモ
 #改行コードはとりあえずCR+LFで統一してます OSはLinuxですがWindows方言だと多分どのOSでも問題無いかと
@@ -26,6 +26,7 @@
 #クラッシュした時の対策とかも兼ねて自動再起動は入れてません(というよりSpigot側に実装されてる)
 #JEBE両対応してますが別にどちらか片方だけでも(多分)例外吐かずに動きます
 #Firefoxはsnap版の前提になってます 多分OSのデフォで入ってるやつはsnap版です(確証無し) ちなみにテスト環境はUbuntu Server 24.04 LTSにLDMとMATE仕込んだ環境です
+#ファイルのDLに関しては全て投げ出してwgetで取得してもいいんじゃないの? Used to be 諦めるのは easy
 
 #開発用メモ
 #コマンドを呼び出した後はawait interaction.response.send_message("メッセージ")で返信しないと応答無し扱いになる
@@ -35,6 +36,9 @@
 #返信が3秒以上遅れる場合はawait interaction.response.defer()で考え中にしてawait interaction.followup.send("")でやらないとエラーになる
 #グローバル変数化はPythonの仕様上関数ごとに呼び出さないといけないらしい
 #killコマンド関連はkillallに変えたほうがコード長が短くなる事を書いてから知りました もう面倒なんでこのまま行きます
+
+#ToDo
+#サーバープロセスにkillコマンド使った時の反応を確認(SIGTERMで/stopの代替になればそれ使う)
 
 #恒心ログ
 #2025/04/18 v1 - リリース
@@ -53,6 +57,7 @@
 #2025/11/19 v14 - BE鯖アプデ機能と強制バックアップ追加
 #2025/12/02 v15 - BE鯖公式ページの仕様に対応
 #2025/12/06 v16 - 削っちゃいけないとこ削ってたので修正
+#2025/12/15 v17 - BE鯖のDLが出来てなかった問題を解決(と細かいとこの修正)
 
 #Discord類のインポート
 import discord # type: ignore
@@ -67,7 +72,6 @@ import selenium	# type: ignore
 from selenium import webdriver  #type: ignore
 from selenium.webdriver.firefox.service import Service	#type: ignore
 from selenium.webdriver.common.by import By #type: ignore
-import requests	#type: ignore
 #システム系のインポート
 import os
 import re
@@ -347,11 +351,12 @@ async def task():
 				subprocess.run(["sudo", "systemctl", "suspend"], check = True)
 				task.stop()
 			except subprocess.CalledProcessError as e:
-				print("スリープ移行失敗")
+				print("スリープ移行失敗\r\n" + e)
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
 						await channel.send(f'なんか知らんがスリープ出来ないぞ visudoとかの仕込みちゃんとしたか?\r\n例外内容:\r\n{e}')
 				auto_sleep = False	#スリープモード移行失敗時は自動スリープを無効化
+				task.start()	#死活確認再開
 	#復帰フラグ解除
 	if resume == True and sleep > 5:
 		print("待機時間終わり!")
@@ -530,19 +535,19 @@ async def com_start(interaction: discord.Interaction, boot: str):
 				print("ファイル名取得完了: " + binary_name)
 				print("ファイル名比較\r\nローカル:" + file_name + "\r\nサーバー:" + binary_name)
 				#実行ファイルの確認・アプデ周り
-				if not os.path.isfile(directory_be + '/' + binary_name):
+				if not os.path.isfile(directory_be + '/' + file_name):
 					await interaction.followup.send("おい、BE鯖のデータが無いぞ\r\nという事でDLするナリよ～")
 					print("BE鯖が無いのでDL")
 					send_flag = True
 					#実行ファイルダウンロード
-					response = requests.get(binary_url).content
+					subprocess.run(["wget", "-P", directory_be, binary_url, "--no-check-certificate"])
 					#展開
-					with open(directory_be + '/' + binary_name, 'wb') as f:
-						f.write(response.content)
+					shutil.unpack_archive(directory_be + '/' + binary_name, directory_be)
 					#通知
 					for channel in client.get_all_channels():
 						if channel.name == Manage_Channel:
 							await channel.send("DL完了")
+					print("BE鯖DL完了")
 				#アプデ
 				elif file_name != binary_name:
 					await interaction.followup.send("BE鯖のアプデがあったぞ")
@@ -551,52 +556,48 @@ async def com_start(interaction: discord.Interaction, boot: str):
 					#既存ファイル削除
 					os.remove(directory_be + '/' + file_name)
 					#実行ファイルダウンロード
-					response = requests.get(binary_url).content
+					subprocess.run(["wget", "-P", directory_be, binary_url, "--no-check-certificate"])
+					print("BE鯖DL完了")
+					#展開
 					shutil.unpack_archive(directory_be + '/' + binary_name, directory_be + "/binary_temp")
 					#必要なやつだけコピー
-					shutil.copytree(directory_be + "/binary_temp/behavior_packs", directory_be, dirs_exist_ok=True)
-					shutil.copytree(directory_be + "/binary_temp/resource_packs", directory_be, dirs_exist_ok=True)
-					shutil.copytree(directory_be + "/binary_temp/definitions", directory_be, dirs_exist_ok=True)
-					shutil.copy2(directory_be + "/binary_temp/profanity_filter.wlist", directory_be, dirs_exist_ok=True)
-					shutil.copy2(directory_be + "/binary_temp/release-notes.txt", directory_be, dirs_exist_ok=True)
-					shutil.copy2(directory_be + "/binary_temp/bedrock_server_how_to.html", directory_be, dirs_exist_ok=True)
-					shutil.copy2(directory_be + "/binary_temp/bedrock_server", directory_be, dirs_exist_ok=True)
+					shutil.copytree(directory_be + "/binary_temp/behavior_packs", directory_be + "/behavior_packs", dirs_exist_ok=True)
+					shutil.copytree(directory_be + "/binary_temp/resource_packs", directory_be + "/resource_packs", dirs_exist_ok=True)
+					shutil.copytree(directory_be + "/binary_temp/definitions", directory_be + "/definitions", dirs_exist_ok=True)
+					shutil.copy2(directory_be + "/binary_temp/profanity_filter.wlist", directory_be)
+					shutil.copy2(directory_be + "/binary_temp/release-notes.txt", directory_be)
+					shutil.copy2(directory_be + "/binary_temp/bedrock_server_how_to.html", directory_be)
+					shutil.copy2(directory_be + "/binary_temp/bedrock_server", directory_be)
 					shutil.rmtree(directory_be + "/binary_temp")	#temp削除
 					#通知
 					for channel in client.get_all_channels():
 						if channel.name == Manage_Channel:
 							await channel.send("アプデ完了")
 			#例外処理
-			except requests.exceptions.HTTPError as e:
-				await interaction.followup.send("HTTPエラー\r\n例外内容:" + str(e))
-				print("HTTPエラー:" + str(e))
-			except requests.exceptions.Timeout:
-				await interaction.followup.send("どうしてタイムアウトなんてするんですか(現場猫)\r\n例外内容:" + str(e))
-				print("タイムアウト:" + str(e))
-			except requests.exceptions.RequestException as e:
-				await interaction.followup.send("なんか知らんがBE鯖のアプデ確認に失敗しました\r\n例外内容:" + str(e))
-				print("BE鯖アプデ確認失敗:" + str(e))
+			except subprocess.CalledProcessError as e:
+				await interaction.followup.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
+				print("subprocess例外\r\n" + e)
 			except selenium.no_such_element_exception.NoSuchElementException as e:
 				await interaction.followup.send("多分HTML構造変わってる気がする\r\n例外内容:" + str(e))
-				print("HTML構造変更?:" + str(e))
+				print("HTML構造変更?\r\n" + str(e))
 			except selenium.timeout_exception.TimeoutException as e:
 				await interaction.followup.send("通信が遅すぎますね…(タイムアウト)\r\n例外内容:" + str(e))
-				print("タイムアウト:" + str(e))
+				print("タイムアウト\r\n" + str(e))
 			except selenium.web_driver_exception.WebDriverException as e:
 				await interaction.followup.send("Firefoxが立ち上がらないんだがバイナリの指定間違えてない?\r\n例外内容:" + str(e))
-				print("Selenium起動失敗:" + str(e))
+				print("Selenium起動失敗\r\n" + str(e))
 			except selenium.invalid_selector_exception.InvalidSelectorException as e:
 				await interaction.followup.send("強引にURLを取得する荒業が対処されたっぽいですね…(URL抽出元ID変更)\r\n例外内容:" + str(e))
-				print("URL抽出元ID変更?" + str(e))
+				print("URL抽出元ID変更?\r\n" + str(e))
 			except selenium.webdriver_exception.WebDriverException as e:
 				await interaction.followup.send("Firefox周りでどうやらエラー吐いてるぞ\r\n例外内容:" + str(e))
-				print("Firefox周りで例外:" + str(e))
+				print("Firefox周りで例外\r\n" + str(e))
 			except selenium.exception.Exception as e:
 				await interaction.followup.send("Seleniumでよう分からん例外吐いた\r\n例外内容:" + str(e))
-				print("Selenium例外:" + str(e))
+				print("Selenium例外\r\n" + str(e))
 			except Exception as e:
 				await interaction.followup.send("なんか知らんがBE鯖のアプデ確認に失敗しました\r\n例外内容:" + str(e))
-				print("例外:" + str(e))
+				print("謎例外\r\n" + str(e))
 			print("鯖が死んでたので起動")
 			status_be = 2	#ステータスを起動処理中にする
 			#フラグで送信方法変更
