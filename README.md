@@ -35,10 +35,10 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 - [pixz](https://github.com/vasi/pixz)
 - [watchfile](https://github.com/samuelcolvin/watchfiles)
 - [MCStatus](https://github.com/py-mine/mcstatus)
-- [Requests](https://github.com/psf/requests)
 - [Selenium](https://www.selenium.dev/ja/)
 - [Firefox](https://www.firefox.com/ja/)
 - [geckodriver](https://github.com/mozilla/geckodriver)
+- [Wget](https://www.gnu.org/software/wget/)
 - 各種デスクトップ環境(デフォルトでは[MATE](https://mate-desktop.org/ja/)の記述になっています)
 - Wake on LANに対応したハードウェア
 ### E-Serverに必要
@@ -84,7 +84,7 @@ Python、watchfile、pixz、discord.py、MCStatus、requests、Seleniumを導入
 
 P-Server用
 ```sh
-sudo apt update && sudo apt install -y pixz python3.12 watchfile && sudo snap insatll firefox geckodriver && pip install -U pip && pip install discord.py mcstatus requests selenium
+sudo apt update && sudo apt install -y pixz python3.12 watchfile && sudo snap insatll firefox geckodriver && pip install -U pip && pip install discord.py mcstatus selenium
 ```
 E-Server用 *テスト環境がRaspberry Piなのでvenvまで書いてます*
 ```sh
