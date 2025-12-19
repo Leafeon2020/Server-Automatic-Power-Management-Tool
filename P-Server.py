@@ -58,6 +58,7 @@
 #2025/12/02 v15 - BE鯖公式ページの仕様に対応
 #2025/12/06 v16 - 削っちゃいけないとこ削ってたので修正
 #2025/12/15 v17 - BE鯖のDLが出来てなかった問題を解決(と細かいとこの修正)
+#2025/12/19 v18 - BE鯖アプデ方式変更
 
 #Discord類のインポート
 import discord # type: ignore
@@ -356,7 +357,6 @@ async def task():
 					if channel.name == Manage_Channel:
 						await channel.send(f'なんか知らんがスリープ出来ないぞ visudoとかの仕込みちゃんとしたか?\r\n例外内容:\r\n{e}')
 				auto_sleep = False	#スリープモード移行失敗時は自動スリープを無効化
-				task.start()	#死活確認再開
 	#復帰フラグ解除
 	if resume == True and sleep > 5:
 		print("待機時間終わり!")
@@ -560,15 +560,20 @@ async def com_start(interaction: discord.Interaction, boot: str):
 					print("BE鯖DL完了")
 					#展開
 					shutil.unpack_archive(directory_be + '/' + binary_name, directory_be + "/binary_temp")
-					#必要なやつだけコピー
-					shutil.copytree(directory_be + "/binary_temp/behavior_packs", directory_be + "/behavior_packs", dirs_exist_ok=True)
-					shutil.copytree(directory_be + "/binary_temp/resource_packs", directory_be + "/resource_packs", dirs_exist_ok=True)
-					shutil.copytree(directory_be + "/binary_temp/definitions", directory_be + "/definitions", dirs_exist_ok=True)
-					shutil.copy2(directory_be + "/binary_temp/profanity_filter.wlist", directory_be)
-					shutil.copy2(directory_be + "/binary_temp/release-notes.txt", directory_be)
-					shutil.copy2(directory_be + "/binary_temp/bedrock_server_how_to.html", directory_be)
-					shutil.copy2(directory_be + "/binary_temp/bedrock_server", directory_be)
-					shutil.rmtree(directory_be + "/binary_temp")	#temp削除
+					#上書きしたら困るやつを先に消す
+					os.remove(directory_be + "/binary_temp/allowlist.json")
+					os.remove(directory_be + "/binary_temp/permissions.json")
+					os.remove(directory_be + "/binary_temp/server.properties")
+					#既存ファイルを上書きコピー
+					for item in os.listdir(directory_be + "/binary_temp"):
+						s = os.path.join(directory_be + "/binary_temp", item)
+						d = os.path.join(directory_be, item)
+						if os.path.isdir(s):
+							shutil.copytree(s, d, dirs_exist_ok=True)
+						else:
+							shutil.copy2(s, d)
+					#展開用の一時フォルダを削除
+					shutil.rmtree(directory_be + "/binary_temp")
 					#通知
 					for channel in client.get_all_channels():
 						if channel.name == Manage_Channel:
