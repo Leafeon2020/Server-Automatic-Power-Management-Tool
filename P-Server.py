@@ -39,6 +39,7 @@
 
 #ToDo
 #サーバープロセスにkillコマンド使った時の反応を確認(SIGTERMで/stopの代替になればそれ使う)
+#関数の置いてる場所を整理して可読性を上げる
 
 #恒心ログ
 #2025/04/18 v1 - リリース
@@ -60,20 +61,21 @@
 #2025/12/15 v17 - BE鯖のDLが出来てなかった問題を解決(と細かいとこの修正)
 #2025/12/19 v18 - BE鯖アプデ方式変更
 #2026/01/21 v19 - chmodの追加とバックアップ周りのバグ修正
+#2026/01/22 v20 - 関数類の整理、終了コマンドの修正、パイプを用いたブラックリスト・ホワイトリストの編集、端末制御周りの変更、DM再起動の実装
 
 #Discord類のインポート
-import discord # type: ignore
-from discord import app_commands # type: ignore
-from discord.ext import tasks # type: ignore
-from discord.app_commands import describe	# type: ignore
+import discord
+from discord import app_commands
+from discord.ext import tasks
+from discord.app_commands import describe
 #外部ライブラリのインポート
-from watchfiles import awatch	# type: ignore
-from mcstatus import JavaServer	# type: ignore
-from mcstatus import BedrockServer	# type: ignore
-import selenium	# type: ignore
-from selenium import webdriver  #type: ignore
-from selenium.webdriver.firefox.service import Service	#type: ignore
-from selenium.webdriver.common.by import By #type: ignore
+from watchfiles import awatch
+from mcstatus import JavaServer
+from mcstatus import BedrockServer
+import selenium
+from selenium import webdriver
+from selenium.webdriver.firefox.service import Service
+from selenium.webdriver.common.by import By
 #システム系のインポート
 import os
 import re
@@ -95,28 +97,14 @@ tree = app_commands.CommandTree(client)	#コマンド類宣言
 TOKEN: str = "https://krsw-wiki.in/wiki/?cuid=3896"	#Botのトークン
 process_name: str = "java"	#プロセス名指定
 process_name_be: str = "bedrock_server"	#プロセス名指定
-Manage_Channel: str = "うんち"	#書き込み先
+Manage_Channel: str = "管理bot用"	#書き込み先
 directory: str = "/home/krsw/.minecraft"	#対象ディレクトリ
 directory_be: str = "/home/krsw/Minecraft_Bedrock"	#対象ディレクトリ
-#JE鯖起動コマンド
-command: str = (
-		"mate-terminal",	#DEの端末
-		"--maximize",	#最大化
-		"--command",	#以下のコマンドを実行する
-		f"java -Xmx28G -jar {directory}/CatServer-universal.jar"	#鯖起動命令
-	)
-#BE鯖起動コマンド
-be_start: str = (
-		"mate-terminal",	#DEの端末
-		"--maximize",	#最大化
-		"--", "bash", "-c",	#bashコアンドを宣言
-		"LD_LIBRARY_PATH=. ./bedrock_server;"	#bashコマンド
-	)
 backup: str = "/home/krsw/backup"	#バックアップ保存先
 backup_be: str = "/home/krsw/Minecraft_Bedrock/backup"	#バックアップ保存先
 port_a: int = 2783	#ポート番号その1(JEポート)
 port_b: int = 40298	#ポート番号その2(SSHポート)
-port_c: int = 43044	#ポート番号その3(BEポート)
+port_c: int = 43044	#ポート番号その3(BEポートIPv4)
 port_d: int = 5900	#ポート番号その4(VNCポート)
 sleep_timer: int = 10	#スリープ移行までの時間(分)
 cloud: str = "/home/krsw/MEGA"	#クラウドストレージの保存先
@@ -125,23 +113,14 @@ backup_limit: int = 20	#バックアップ世代数
 backup_remove: bool = True	#バックアップ自動消去フラグ
 
 #システム用変数 触るな
-global status
 status: int = 0	#プロセス状態用フラグ 0で落ちてて1で生きてる2で起動処理中
-global status_be
 status_be: int = 0	#プロセス状態用フラグ 0で落ちてて1で生きてる2で起動処理中
-global resume
 resume: bool = False	#復帰フラグ
-global auto_sleep
 auto_sleep: bool = True	#自動スリープ設定
-global sleep
 sleep: int = -1	#無接続時間
-global intosleep
 intosleep: bool = False	#スリープモード移行フラグ
-global counter
 counter: int = 0	#同時アクセス数(設定全ポート分)
-global process_id
 process_id: str = 0	#プロセスID(JE)
-global process_id_be
 process_id_be: str = 0	#プロセスID(BE)
 switch_file: str = directory + "/sleep_switch.txt"	#watchdog制御用ファイル
 JE_server = JavaServer.lookup("localhost:" + str(port_a))	#JE鯖の読み込み
@@ -149,6 +128,31 @@ BE_server = BedrockServer.lookup("localhost:" + str(port_c))	#BE鯖の読み込�
 type = ["JE", "BE"]	#引数用
 firefox_bin: str = "/snap/firefox/current/usr/lib/firefox/firefox"	#Firefox実行ファイルパス
 firefoxdriver_bin: str = "/snap/firefox/current/usr/lib/firefox/geckodriver"	#GeckoDriver実行ファイルパス
+pipe_flag_je: bool = False	#JEパイプフラグ
+pipe_flag_be: bool = False	#BEパイプフラグ
+JE_FIFO_IN: str = "/tmp/je_session_in"	#JE鯖パイプ入力先
+JE_FIFO_OUT: str = "/tmp/je_session_out"	#JE鯖パイプ出力先
+BE_FIFO_IN: str = "/tmp/be_session_in"	#BE鯖パイプ入力先
+BE_FIFO_OUT: str = "/tmp/be_session_out"	#BE鯖パイプ出力先
+session_name_je: str = "je_server"	#JE鯖screenセッション名
+session_name_be: str = "be_server"	#BE鯖screenセッション名
+#非同期入出力用変数
+#JE
+stdin_pipe_je = None
+stdout_pipe_je = None
+#BE
+stdin_pipe_be = None
+stdout_pipe_be = None
+
+#自動実行コマンド類
+#JE鯖起動コマンド
+command: str = (f"screen -dmS {session_name_je} bash -c 'tail -f {JE_FIFO_IN} | java -Xmx28G -jar {directory}/CatServer-universal.jar 2>&1 | tee {JE_FIFO_OUT}'")	#鯖起動命令
+#BE鯖起動コマンド
+be_start: str = (f"export LD_LIBRARY_PATH={directory_be}; "
+				 f"{process_name_be} < {BE_FIFO_IN} 2>&1 | tee -a {BE_FIFO_OUT}")	#鯖起動命令
+#端末
+je_terminal: str = "mate-terminal", "--maximize", "--command", "screen", "-r", session_name_je	#JE鯖操作端末起動コマンド
+be_terminal: str = "mate-terminal", "--maximize", "--command", "screen", "-r", session_name_be	#BE鯖操作端末起動コマンド
 
 #オートコンプリート関数
 async def version_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -156,6 +160,163 @@ async def version_autocomplete(interaction: discord.Interaction, current: str) -
 		app_commands.Choice(name=version, value=version)
 		for version in type if current.lower() in version.lower()
 	][:2]
+
+#各種関数類
+#ログ抽出
+def extract(file_path, start_str, end_str):
+	extracted_lines = []	#str型配列 ログ格納用
+	inside_section = False	#追記開始フラグ
+	#読み込み処理
+	with open(file_path, 'r', encoding='utf-8') as file:
+		for line in file:	#上から読み込み
+			#開始行発見
+			if start_str in line:
+				inside_section = True
+			#ログを文字列に追記(改行コード込)
+			if inside_section:
+				extracted_lines.append(line)
+			#終了行で停止
+			if end_str in line and inside_section:
+				break
+	return ''.join(extracted_lines)	#str型で返す
+
+#終了処理
+async def mcstop(version: int):
+	global process_name
+	global process_name_be
+	global pipe_flag_je
+	global pipe_flag_be
+	#JE鯖停止
+	if version == 0:
+		if pipe_flag_je == True:	#パイプ接続中
+			try:
+				if stdin_pipe_je:
+					stdin_pipe_je.write("stop\r\n")
+					stdin_pipe_je.flush()
+				pipe_flag_je = False
+				print("JE停止命令送信完了")
+				return True
+			except Exception as e:
+				print(f"JE停止例外\r\n{e}")
+				return e
+		else:	#パイプ未接続
+			try:
+				subprocess.run(["pkill", "-f", process_name, "-s", "SIGTERM"], check=True)
+				print("JE強制停止完了")
+				return True
+			except subprocess.CalledProcessError as e:
+				print(f"JE強制停止例外\r\n{e}")
+				return e
+	#BE鯖停止
+	elif version == 1:
+		if pipe_flag_be == True:	#パイプ接続中
+			try:
+				if stdin_pipe_be:
+					stdin_pipe_be.write("stop\r\n")
+					stdin_pipe_be.flush()
+				pipe_flag_be = False
+				print("BE停止命令送信完了")
+				return True
+			except Exception as e:
+				print(f"BE停止例外\r\n{e}")
+				return e
+		else:	#パイプ未接続
+			try:
+				subprocess.run(["pkill", "-f", process_name_be, "-s", "SIGTERM"], check=True)
+				print("BE強制停止完了")
+				return True
+			except subprocess.CalledProcessError as e:
+				print(f"BE強制停止例外\r\n{e}")
+				return e
+			
+#PID取得
+def get_pid(switch: int):
+	global process_name
+	try:
+		if switch == 0:
+			result = subprocess.run(["pgrep", "-o", process_name], capture_output=True, text=True)
+		elif switch == 1:
+			result = subprocess.run(["pgrep", "-o", process_name_be], capture_output=True, text=True)
+		if result.returncode == 0 and result.stdout.strip():
+			return str(result.stdout.strip())
+	except Exception as e:
+		print(f"なんか例外吐いてるぞ: {e}")
+	return None	#例外吐いた時の保険
+
+#バックアップファイル名取得
+def get_latest_backup_file(directory: str, switch: int) -> str:
+	if switch == 0:
+		pattern = re.compile(r"world-(\d{8})-(\d{6})\.tar\.xz")	#パターン指定
+	elif switch == 1:
+		pattern = re.compile(r"be-world-(\d{8})-(\d{6})\.tar\.xz")	#パターン指定
+	#初期化
+	latest_time = None
+	latest_file = None
+	for filename in os.listdir(directory):	#引数で指定したフォルダの中身を片っ端から調査
+		match = pattern.fullmatch(filename)	#条件完全一致で変数に格納
+		if match:
+			date_str = match.group(1) + match.group(2)	#YYYYmmddHHMMSS
+			try:
+				file_time = datetime.strptime(date_str, "%Y%m%d%H%M%S")	#基準時刻生成
+				#ファイル名の時刻を分析して比較
+				if latest_time is None or file_time > latest_time:
+					latest_time = file_time
+					latest_file = filename
+			except ValueError:
+				continue	#不正な日付はスキップ
+	return latest_file if latest_file else ""	#ファイルが無いと長さ0のstr型を返す
+
+#バックアップ作成
+async def create_backup(switch: int):
+	try:
+		#ファイル名生成
+		timestamp: str = datetime.now().strftime("%Y%m%d-%H%M%S")
+		if switch == 0:
+			filename: str = f"world-{timestamp}.tar.xz"
+		elif switch == 1:
+			filename: str = f"be-world-{timestamp}.tar.xz"
+		#.tar.xzで圧縮
+		print("圧縮開始")
+		if switch == 0:
+			subprocess.run(["tar", "-I", "pixz", "-cvpf", filename, "-C", directory + "/world", "./"], check=True, cwd = backup)	#pixzに投げる
+		elif switch == 1:
+			subprocess.run(["tar", "-I", "pixz", "-cvpf", filename, "-C", directory_be + "/worlds", "./world"], check=True, cwd = backup_be)	#pixzに投げる
+		print("xzで圧縮")
+		for channel in client.get_all_channels():
+			if channel.name == Manage_Channel:
+				await channel.send(f'バックアップを生成しました')
+		#クラウドにバックアップするか
+		if cloud_swtich == True:
+			cloud_backup: str = get_latest_backup_file(cloud, switch)	#既存バックアップ名取得
+			#バックアップが既にある場合は消去してコピー
+			if cloud_backup != "":
+				os.remove(cloud + "/" + cloud_backup)
+			if switch == 0:
+				shutil.copy(backup + "/" + filename, cloud)
+			elif switch == 1:
+				shutil.copy(backup_be + "/" + filename, cloud)
+		#古いバックアップ削除
+		if switch == 0:
+			files = glob(f"{backup}/world-????????-??????.tar.xz")
+		elif switch == 1:
+			files = glob(f"{backup_be}/be-world-????????-??????.tar.xz")
+		if backup_remove == True:
+			if len(files) > backup_limit:
+				files.sort(key=os.path.getmtime)
+				for file in files[:-backup_limit]:
+					os.remove(file)
+					print(f"古いバックアップファイルを削除しました: {file}")
+	#例外処理
+	except subprocess.CalledProcessError as e:
+		print("圧縮例外\r\n" + e)
+		for channel in client.get_all_channels():
+			if channel.name == Manage_Channel:
+				await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
+	except Exception as e:
+			print(f"Exception\r\n" + e)
+			for channel in client.get_all_channels():
+				if channel.name == Manage_Channel:
+					await channel.send(f'なんかやらかしてるみたいですよ…\r\n詳細:{e}')
 
 #本体
 #起動時処理 on_readyが条件なんでスリープ復帰時にも処理されます
@@ -169,6 +330,8 @@ async def on_ready():
 	global process_id
 	global status_be
 	global process_id_be
+	global pipe_flag_je
+	global pipe_flag_be
 	print("サーバーマシン、起動!w")
 	await client.change_presence(activity=discord.Game("開示請求を発行中…"))
 	await tree.sync()	#コマンド読み込み
@@ -184,6 +347,7 @@ async def on_ready():
 		status = 1	#生存フラグ
 	except subprocess.CalledProcessError:	#死んでる時
 		status = 0	#死亡フラグ
+		pipe_flag_je = False	#パイプ切断
 		for channel in client.get_all_channels():
 			if channel.name == Manage_Channel:
 				await channel.send(f'JE鯖が起動してないですを')
@@ -193,12 +357,14 @@ async def on_ready():
 		status_be = 1	#生存フラグ
 	except subprocess.CalledProcessError:	#死んでる時
 		status_be = 0	#死亡フラグ
+		pipe_flag_be = False	#パイプ切断
 		for channel in client.get_all_channels():
 			if channel.name == Manage_Channel:
 				await channel.send(f'BE鯖が起動してないですを')
 	await tree.sync()	#コマンドリスト恒心
+	print("制御ファイル存在確認")
 	#watchdogフラグ制御ファイル作成
-	if os.path.isfile(switch_file) == False:
+	if os.path.exists(switch_file) == False:
 		with open(switch_file, 'w') as f:
 			f.write("1")
 		print("制御ファイルを作成しました")
@@ -236,13 +402,15 @@ async def on_ready():
 		sleep = -1
 	try:
 		watchdog.start()	#クラッシュログ監視起動
+		print("watchdog起動")
 	except:
 		print("watchdog起動済")
 	try:
 		task.start()	#死活確認起動
+		print("死活確認起動")
 	except:
 		print("死活確認起動済")
-	await asyncio.sleep(60)	#恒心検知処理が動くようにちょっと待つ
+	await asyncio.sleep(120)	#恒心検知処理が動くようにちょっと待つ
 	with open(switch_file, 'w') as f:
 		f.write("1")
 	return
@@ -251,7 +419,6 @@ async def on_ready():
 @tasks.loop(seconds=60)	#毎分確認
 async def task():
 	global status
-	global status_be
 	global auto_sleep
 	global sleep
 	global sleep_timer
@@ -259,6 +426,10 @@ async def task():
 	global resume
 	global counter
 	global process_id
+	global status_be
+	global process_id_be
+	global pipe_flag_je
+	global pipe_flag_be
 	#プロセス監視
 	#JE
 	if status == 1:	#プロセスが死んでたらスルー(連投対策)
@@ -269,6 +440,10 @@ async def task():
 			print("生きてた")
 		except subprocess.CalledProcessError:
 			status = 0	#死亡フラグ
+			#パイプ削除
+			if os.path.exists(JE_FIFO_IN): os.remove(JE_FIFO_IN)
+			if os.path.exists(JE_FIFO_OUT): os.remove(JE_FIFO_OUT)
+			pipe_flag_je = False	#パイプ切断
 			for channel in client.get_all_channels():
 				if channel.name == Manage_Channel:
 					await channel.send(f'なんてこった!JEサーバーが殺されちゃった!\r\nこの人でなし!')
@@ -281,6 +456,10 @@ async def task():
 			print("生きてた")
 		except subprocess.CalledProcessError:
 			status_be = 0	#死亡フラグ
+			#パイプ削除
+			if os.path.exists(BE_FIFO_IN): os.remove(BE_FIFO_IN)
+			if os.path.exists(BE_FIFO_OUT): os.remove(BE_FIFO_OUT)
+			pipe_flag_be = False	#パイプ切断
 			for channel in client.get_all_channels():
 				if channel.name == Manage_Channel:
 					await channel.send(f'なんてこった!BEサーバーが殺されちゃった!\r\nこの人でなし!')
@@ -367,20 +546,6 @@ async def task():
 		sleep = 0
 	return
 
-#PID取得
-def get_pid(switch: int):
-	global process_name
-	try:
-		if switch == 0:
-			result = subprocess.run(["pgrep", "-o", process_name], capture_output=True, text=True)
-		elif switch == 1:
-			result = subprocess.run(["pgrep", "-o", process_name_be], capture_output=True, text=True)
-		if result.returncode == 0 and result.stdout.strip():
-			return str(result.stdout.strip())
-	except Exception as e:
-		print(f"なんか例外吐いてるぞ: {e}")
-	return None	#例外吐いた時の保険
-
 #クラッシュログ通知
 @tasks.loop(seconds=60)	#起動聖句を思いつかなかったのでtask.loopで起動してます
 async def watchdog():
@@ -398,27 +563,9 @@ async def watchdog():
 		crash_log = extract(latest_file, start_str, end_str)
 		for channel in client.get_all_channels():
 			if channel.name == Manage_Channel:
-				await channel.send(f'鯖は死んだ… 残されたダイイングメッセージには以下のように残されていた\r\n```' + crash_log + "\r\n```")
+				await channel.send(f'鯖は死んだ… 残されたダイイングメッセージには以下のように残されていた\r\n```log\r\n' + crash_log + "\r\n```")
 		break
 	return
-
-#ログ抽出
-def extract(file_path, start_str, end_str):
-	extracted_lines = []	#str型配列 ログ格納用
-	inside_section = False	#追記開始フラグ
-	#読み込み処理
-	with open(file_path, 'r', encoding='utf-8') as file:
-		for line in file:	#上から読み込み
-			#開始行発見
-			if start_str in line:
-				inside_section = True
-			#ログを文字列に追記(改行コード込)
-			if inside_section:
-				extracted_lines.append(line)
-			#終了行で停止
-			if end_str in line and inside_section:
-				break
-	return ''.join(extracted_lines)	#str型で返す
 
 #コマンド処理
 #起動
@@ -428,6 +575,9 @@ def extract(file_path, start_str, end_str):
 async def com_start(interaction: discord.Interaction, boot: str):
 	if boot == "JE":
 		global status
+		global pipe_flag_je
+		global stdin_pipe_je
+		global stdout_pipe_je
 		print("JE起動プロセス開始")
 		try:
 			subprocess.run(["pgrep", process_name], check=True)
@@ -437,56 +587,29 @@ async def com_start(interaction: discord.Interaction, boot: str):
 		#起動処理
 		if status == 0:
 			print("鯖が死んでたので起動")
+			#FIFOパイプ作成
+			if os.path.exists(JE_FIFO_IN): os.remove(JE_FIFO_IN)
+			if os.path.exists(JE_FIFO_OUT): os.remove(JE_FIFO_OUT)
+			os.mkfifo(JE_FIFO_IN)
+			os.mkfifo(JE_FIFO_OUT)
 			status = 2	#ステータスを起動処理中にする
 			await interaction.response.send_message("起動処理を実行します")
 			#バックアップ生成
-			try:
-				#ファイル名生成
-				timestamp: str = datetime.now().strftime("%Y%m%d-%H%M%S")
-				filename: str = f"world-{timestamp}.tar.xz"
-				#.tar.xzで圧縮
-				print("圧縮開始")
-				subprocess.run(["tar", "-I", "pixz", "-cvpf", filename, "-C", directory + "/world", "./"], check=True, cwd = backup)	#pixzに投げる
-				print("xzで圧縮")
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'バックアップを生成しました')
-				#クラウドにバックアップするか
-				if cloud_swtich == True:
-					cloud_backup: str = get_latest_backup_file(cloud, 0)	#既存バックアップ名取得
-					#バックアップが既にある場合は消去してコピー
-					if cloud_backup != "":
-						os.remove(cloud + "/" + cloud_backup)
-					shutil.copy(backup + "/" + filename, cloud)
-				#古いバックアップ削除
-				if backup_remove == True:
-					files = glob(f"{backup}/world-????????-??????.tar.xz")
-					if len(files) > backup_limit:
-						files.sort(key=os.path.getmtime)
-						for file in files[:-backup_limit]:
-							os.remove(file)
-							print(f"古いバックアップファイルを削除しました: {file}")
-			#例外処理
-			except subprocess.CalledProcessError as e:
-				print("圧縮例外\r\n" + e)
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
-						status = 0	#死んだ扱いにする
-			except Exception as e:
-					print(f"Exception\r\n" + e)
-					for channel in client.get_all_channels():
-						if channel.name == Manage_Channel:
-							await channel.send(f'なんかやらかしてるみたいですよ…\r\n詳細:{e}')
+			await create_backup(0)
 			#メッセージ送信
 			#鯖起動
 			try:
 				print("起動命令送信")
-				subprocess.Popen(command, cwd = directory)	#起動聖句
+				subprocess.Popen(command, cwd=directory)	#起動聖句
+				subprocess.Popen(je_terminal, cwd=directory, shell=True)	#操作端末起動
+				#パイプ接続
+				stdin_pipe_je = open(JE_FIFO_IN, 'w', buffering=1)
+				stdout_pipe_je = open(JE_FIFO_OUT, 'r', buffering=1)
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
 						await channel.send(f'JE鯖の起動命令を送ったナリよ')
 				status = 1	#起動処理中から起動に変更
+				pipe_flag_je = True	#パイプ接続
 				print("JE起動成功")
 			except subprocess.CalledProcessError as e:
 				print("起動例外\r\n" + e)
@@ -506,6 +629,9 @@ async def com_start(interaction: discord.Interaction, boot: str):
 	elif boot == "BE":
 		await interaction.response.defer()
 		global status_be
+		global pipe_flag_be
+		global stdin_pipe_be
+		global stdout_pipe_be
 		send_flag: bool = False	#メッセージ送信フラグ
 		print("BE起動プロセス開始")
 		try:
@@ -614,59 +740,38 @@ async def com_start(interaction: discord.Interaction, boot: str):
 			status_be = 2	#ステータスを起動処理中にする
 			#フラグで送信方法変更
 			if send_flag == False:	#返信で対応
-				await interaction.response.send_message("起動処理を実行します")
+				await interaction.followup.send("起動処理を実行します")
 			else:	#新規送信で対応
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
 						await channel.send("起動処理を実行します")
 			#バックアップ生成
-			try:
-				#ファイル名生成
-				timestamp: str = datetime.now().strftime("%Y%m%d-%H%M%S")
-				filename: str = f"be-world-{timestamp}.tar.xz"
-				#.tar.xzで圧縮
-				print("圧縮開始")
-				subprocess.run(["tar", "-I", "pixz", "-cvpf", filename, "-C", directory_be + "/worlds", "./world"], check=True, cwd = backup_be)	#pixzに投げる
-				print("xzで圧縮")
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'バックアップを生成しました')
-				#クラウドにバックアップするか
-				if cloud_swtich == True:
-					cloud_backup: str = get_latest_backup_file(cloud, 1)	#既存バックアップ名取得
-					#バックアップが既にある場合は消去してコピー
-					if cloud_backup != "":
-						os.remove(cloud + "/" + cloud_backup)
-					shutil.copy(backup_be + "/" + filename, cloud)
-				#古いバックアップ削除
-				if backup_remove == True:
-					files = glob(f"{backup_be}/be-world-????????-??????.tar.xz")
-					if len(files) > backup_limit:
-						files.sort(key=os.path.getmtime)
-						for file in files[:-backup_limit]:
-							os.remove(file)
-							print(f"古いバックアップファイルを削除しました: {file}")
-			#例外処理
-			except subprocess.CalledProcessError as e:
-				print("圧縮例外\r\n" + e)
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
-						status_be = 0	#死んだ扱いにする
-			except Exception as e:
-					print(f"Exception\r\n" + e)
-					for channel in client.get_all_channels():
-						if channel.name == Manage_Channel:
-							await channel.send(f'なんかやらかしてるみたいですよ…\r\n詳細:{e}')
+			await create_backup(1)
 			#メッセージ送信
 			#鯖起動
 			try:
 				print("起動命令送信")
-				subprocess.Popen(be_start, cwd = directory_be)	#起動聖句
+				#FIFOパイプ作成
+				if os.path.exists(BE_FIFO_IN):
+					os.remove(BE_FIFO_IN)
+				if os.path.exists(BE_FIFO_OUT):
+					os.remove(BE_FIFO_OUT)
+				os.mkfifo(BE_FIFO_IN)
+				os.mkfifo(BE_FIFO_OUT)
+				screen_cmd = [
+					"screen", "-dmS", session_name_be, 
+					"bash", "-c", be_start
+				]
+				subprocess.Popen(screen_cmd, cwd=directory_be)	#起動聖句
+				subprocess.Popen(be_terminal, cwd=directory_be, shell=True)	#操作端末起動
+				#パイプ接続
+				stdin_pipe_be = open(BE_FIFO_IN, 'w', buffering=1)
+				stdout_pipe_be = open(BE_FIFO_OUT, 'r', buffering=1)
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
 						await channel.send(f'BE鯖の起動命令を送ったナリよ')
 				status_be = 1	#起動処理中から起動に変更
+				pipe_flag_be = True	#パイプ接続
 				print("BE起動成功")
 			except subprocess.CalledProcessError as e:
 				print("起動例外\r\n" + e)
@@ -685,29 +790,6 @@ async def com_start(interaction: discord.Interaction, boot: str):
 		return
 	else:
 		await interaction.response.send_message(f'その引数は無効っスよ')
-
-#バックアップファイル名取得
-def get_latest_backup_file(directory: str, switch: int) -> str:
-	if switch == 0:
-		pattern = re.compile(r"world-(\d{8})-(\d{6})\.tar\.xz")	#パターン指定
-	elif switch == 1:
-		pattern = re.compile(r"be-world-(\d{8})-(\d{6})\.tar\.xz")	#パターン指定
-	#初期化
-	latest_time = None
-	latest_file = None
-	for filename in os.listdir(directory):	#引数で指定したフォルダの中身を片っ端から調査
-		match = pattern.fullmatch(filename)	#条件完全一致で変数に格納
-		if match:
-			date_str = match.group(1) + match.group(2)	#YYYYmmddHHMMSS
-			try:
-				file_time = datetime.strptime(date_str, "%Y%m%d%H%M%S")	#基準時刻生成
-				#ファイル名の時刻を分析して比較
-				if latest_time is None or file_time > latest_time:
-					latest_time = file_time
-					latest_file = filename
-			except ValueError:
-				continue	#不正な日付はスキップ
-	return latest_file if latest_file else ""	#ファイルが無いと長さ0のstr型を返す
 
 #死活確認
 @tree.command(name="status", description="サーバープロセスが生きてるか確認します")
@@ -888,6 +970,31 @@ async def com_start(interaction: discord.Interaction):
 		player_be = 0
 	await interaction.followup.send("現在JE鯖には" + str(player_je) + "人が、BE鯖には" + str(player_be) + "人が接続しています。")
 	return
+
+#サーバー停止処理
+@tree.command(name="stop", description="サーバープロセスを停止します")
+@describe(target="対象")
+@app_commands.autocomplete(target=version_autocomplete)
+@discord.app_commands.default_permissions(administrator=True)
+async def mc_stop(interaction: discord.Interaction, target: str):
+	if target == "JE":
+		print("JE停止プロセス開始")
+		result = mcstop(0)
+		if result == True:
+			await interaction.response.send_message(f'JE鯖の停止命令を送ったナリよ')
+		else:
+			await interaction.response.send_message(f'なんか上手いこと行かなかったみたいですよ\r\n例外詳細:{result}')
+		return
+	elif target == "BE":
+		print("BE停止プロセス開始")
+		result = mcstop(1)
+		if result == True:
+			await interaction.response.send_message(f'BE鯖の停止命令を送ったナリよ')
+		else:
+			await interaction.response.send_message(f'なんか上手いこと行かなかったみたいですよ\r\n例外詳細:{result}')
+		return
+	else:
+		await interaction.response.send_message(f'その引数は無効っスよ')
 
 #終了処理
 @tree.command(name="exit", description="監視botを終了させます")
