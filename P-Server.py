@@ -59,6 +59,7 @@
 #2025/12/06 v16 - 削っちゃいけないとこ削ってたので修正
 #2025/12/15 v17 - BE鯖のDLが出来てなかった問題を解決(と細かいとこの修正)
 #2025/12/19 v18 - BE鯖アプデ方式変更
+#2026/01/21 v19 - chmodの追加とバックアップ周りのバグ修正
 
 #Discord類のインポート
 import discord # type: ignore
@@ -161,6 +162,7 @@ async def version_autocomplete(interaction: discord.Interaction, current: str) -
 @client.event
 async def on_ready():
 	global status
+	global status_be
 	global resume
 	global intosleep
 	global sleep
@@ -249,6 +251,7 @@ async def on_ready():
 @tasks.loop(seconds=60)	#毎分確認
 async def task():
 	global status
+	global status_be
 	global auto_sleep
 	global sleep
 	global sleep_timer
@@ -398,7 +401,7 @@ async def watchdog():
 				await channel.send(f'鯖は死んだ… 残されたダイイングメッセージには以下のように残されていた\r\n```' + crash_log + "\r\n```")
 		break
 	return
-	
+
 #ログ抽出
 def extract(file_path, start_str, end_str):
 	extracted_lines = []	#str型配列 ログ格納用
@@ -543,6 +546,8 @@ async def com_start(interaction: discord.Interaction, boot: str):
 					subprocess.run(["wget", "-P", directory_be, binary_url, "--no-check-certificate"])
 					#展開
 					shutil.unpack_archive(directory_be + '/' + binary_name, directory_be)
+					#権限付与
+					subprocess.run(["chmod", "755", process_name_be], cwd=directory_be)
 					#通知
 					for channel in client.get_all_channels():
 						if channel.name == Manage_Channel:
@@ -574,6 +579,8 @@ async def com_start(interaction: discord.Interaction, boot: str):
 							shutil.copy2(s, d)
 					#展開用の一時フォルダを削除
 					shutil.rmtree(directory_be + "/binary_temp")
+					#権限付与
+					subprocess.run(["chmod", "755", process_name_be], cwd=directory_be)
 					#通知
 					for channel in client.get_all_channels():
 						if channel.name == Manage_Channel:
@@ -775,9 +782,9 @@ async def force_backup(interaction: discord.Interaction, target: str):
 			#ファイル名生成
 			timestamp: str = datetime.now().strftime("%Y%m%d-%H%M%S")
 			if target == "JE":
-				filename: str = f"world-{timestamp}.tar.xz"
+				filename: str = f"force-world-{timestamp}.tar.xz"
 			elif target == "BE":
-				filename: str = f"be-world-{timestamp}.tar.xz"
+				filename: str = f"force-be-world-{timestamp}.tar.xz"
 			#.tar.xzで圧縮
 			print("圧縮開始")
 			if target == "JE":
@@ -795,18 +802,21 @@ async def force_backup(interaction: discord.Interaction, target: str):
 				#バックアップが既にある場合は消去してコピー
 				if cloud_backup != "":
 					os.remove(cloud + "/" + cloud_backup)
-				shutil.copy(backup + "/" + filename, cloud)
+				if target == "JE":
+					shutil.copy(backup + "/" + filename, cloud)
+				elif target == "BE":
+					shutil.copy(backup_be + "/" + filename, cloud)
 			#古いバックアップ削除
 			if backup_remove == True:
 				if target == "JE":
-					files = glob(f"{backup}/world-????????-??????.tar.xz")
+					files = glob(f"{backup}/force-world-????????-??????.tar.xz")
 					if len(files) > backup_limit:
 						files.sort(key=os.path.getmtime)
 						for file in files[:-backup_limit]:
 							os.remove(file)
 							print(f"古いバックアップファイルを削除しました: {file}")
 				elif target == "BE":
-					files = glob(f"{backup_be}/be-world-????????-??????.tar.xz")
+					files = glob(f"{backup_be}/force-be-world-????????-??????.tar.xz")
 					if len(files) > backup_limit:
 						files.sort(key=os.path.getmtime)
 						for file in files[:-backup_limit]:
@@ -838,9 +848,9 @@ async def debug(interaction: discord.Interaction):
 	pid = get_pid(0)
 	pid_be = get_pid(1)
 	if pid == None:
-		pid = ("プロセス無し")
+		pid = "(プロセス無し)"
 	if pid_be == None:
-		pid_be = ("プロセス無し")
+		pid_be = "(プロセス無し)"
 	if status == 0:
 		state = "0(プロセス無し)"
 	elif status == 1:
