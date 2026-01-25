@@ -173,5 +173,5 @@ BEのアップデートには[Javascriptを用いて動的にURLを生成して�
 ![GPLv3](https://upload.wikimedia.org/wikipedia/commons/thumb/9/93/GPLv3_Logo.svg/720px-GPLv3_Logo.svg.png)
 
 ## スペシャルサンクス
-当プログラムは[ダクト飯師](https://krsw-wiki.in/wiki/?curid=867)の著作である[AAで学ぶネット事件簿 第1章 Operation Lenin](https://archive.vn/g2Mhi)の作中に登場するUniteの構造に着想を得て開発した物になります。  
+当プログラムは[ダクト飯師](https://x.com/joinus_yaruo)の著作である[AAで学ぶネット事件簿 第1章 Operation Lenin](https://yaruo-blog.netlify.app/2017/09/01/internet-casefile-1/)の作中に登場するUniteの構造に着想を得て開発した物になります。  
 従って、彼無しではこのプログラムは完成しなかったとも言えるため、ここに感謝の意を表明しておきます。
