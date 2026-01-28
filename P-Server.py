@@ -61,7 +61,7 @@
 #2025/12/15 v17 - BE鯖のDLが出来てなかった問題を解決(と細かいとこの修正)
 #2025/12/19 v18 - BE鯖アプデ方式変更
 #2026/01/21 v19 - chmodの追加とバックアップ周りのバグ修正
-#2026/01/22 v20 - 関数類の整理、終了コマンドの修正、パイプを用いたブラックリスト・ホワイトリストの編集、端末制御周りの変更、DM再起動の実装
+#2026/01/28 v20 - 関数類の整理、終了コマンドの修正、端末制御周りの変更、パイプ接続実装、screen起動実装 多分このバージョン没
 
 #Discord類のインポート
 import discord
@@ -146,13 +146,22 @@ stdout_pipe_be = None
 
 #自動実行コマンド類
 #JE鯖起動コマンド
-command: str = (f"screen -dmS {session_name_je} bash -c 'tail -f {JE_FIFO_IN} | java -Xmx28G -jar {directory}/CatServer-universal.jar 2>&1 | tee {JE_FIFO_OUT}'")	#鯖起動命令
+command: str = f"screen -dmS {session_name_je} bash -c 'tail -f {JE_FIFO_IN} | java -Xmx28G -jar {directory}/CatServer-universal.jar 2>&1 | tee {JE_FIFO_OUT}'"	#鯖起動命令
 #BE鯖起動コマンド
-be_start: str = (f"export LD_LIBRARY_PATH={directory_be}; "
-				 f"{process_name_be} < {BE_FIFO_IN} 2>&1 | tee -a {BE_FIFO_OUT}")	#鯖起動命令
+be_start: str = (f"export LD_LIBRARY_PATH={directory_be}; tail -f {BE_FIFO_IN} | {directory_be}/{process_name_be} 2>&1 | tee {BE_FIFO_OUT}")	#鯖起動命令
 #端末
-je_terminal: str = "mate-terminal", "--maximize", "--command", "screen", "-r", session_name_je	#JE鯖操作端末起動コマンド
-be_terminal: str = "mate-terminal", "--maximize", "--command", "screen", "-r", session_name_be	#BE鯖操作端末起動コマンド
+je_terminal: str =(
+	"mate-terminal", 
+	"--maximize", 
+	"--command", 
+	f"screen -r {session_name_je}"	#JE鯖操作端末起動コマンド
+)
+be_terminal: str = (
+	"mate-terminal", 
+	"--maximize", 
+	"--command", 
+	f"screen -r {session_name_be}"	#BE鯖操作端末起動コマンド
+)	#BE鯖操作端末起動コマンド
 
 #オートコンプリート関数
 async def version_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
@@ -186,13 +195,15 @@ async def mcstop(version: int):
 	global process_name_be
 	global pipe_flag_je
 	global pipe_flag_be
+	global stdin_pipe_je
+	global stdin_pipe_be
 	#JE鯖停止
 	if version == 0:
 		if pipe_flag_je == True:	#パイプ接続中
 			try:
 				if stdin_pipe_je:
-					stdin_pipe_je.write("stop\r\n")
-					stdin_pipe_je.flush()
+					await stdin_pipe_je.write("stop\r\n")
+					await stdin_pipe_je.flush()
 				pipe_flag_je = False
 				print("JE停止命令送信完了")
 				return True
@@ -212,8 +223,8 @@ async def mcstop(version: int):
 		if pipe_flag_be == True:	#パイプ接続中
 			try:
 				if stdin_pipe_be:
-					stdin_pipe_be.write("stop\r\n")
-					stdin_pipe_be.flush()
+					await stdin_pipe_be.write("stop\r\n")
+					await stdin_pipe_be.flush()
 				pipe_flag_be = False
 				print("BE停止命令送信完了")
 				return True
@@ -228,7 +239,7 @@ async def mcstop(version: int):
 			except subprocess.CalledProcessError as e:
 				print(f"BE強制停止例外\r\n{e}")
 				return e
-			
+
 #PID取得
 def get_pid(switch: int):
 	global process_name
@@ -441,8 +452,10 @@ async def task():
 		except subprocess.CalledProcessError:
 			status = 0	#死亡フラグ
 			#パイプ削除
-			if os.path.exists(JE_FIFO_IN): os.remove(JE_FIFO_IN)
-			if os.path.exists(JE_FIFO_OUT): os.remove(JE_FIFO_OUT)
+			if os.path.exists(JE_FIFO_IN):
+				os.remove(JE_FIFO_IN)
+			if os.path.exists(JE_FIFO_OUT):
+				os.remove(JE_FIFO_OUT)
 			pipe_flag_je = False	#パイプ切断
 			for channel in client.get_all_channels():
 				if channel.name == Manage_Channel:
@@ -457,8 +470,10 @@ async def task():
 		except subprocess.CalledProcessError:
 			status_be = 0	#死亡フラグ
 			#パイプ削除
-			if os.path.exists(BE_FIFO_IN): os.remove(BE_FIFO_IN)
-			if os.path.exists(BE_FIFO_OUT): os.remove(BE_FIFO_OUT)
+			if os.path.exists(BE_FIFO_IN):
+				os.remove(BE_FIFO_IN)
+			if os.path.exists(BE_FIFO_OUT):
+				os.remove(BE_FIFO_OUT)
 			pipe_flag_be = False	#パイプ切断
 			for channel in client.get_all_channels():
 				if channel.name == Manage_Channel:
@@ -578,6 +593,9 @@ async def com_start(interaction: discord.Interaction, boot: str):
 		global pipe_flag_je
 		global stdin_pipe_je
 		global stdout_pipe_je
+		global stdin_pipe_be
+		global stdout_pipe_be
+		send_flag: bool = False	#メッセージ送信フラグ
 		print("JE起動プロセス開始")
 		try:
 			subprocess.run(["pgrep", process_name], check=True)
@@ -588,8 +606,10 @@ async def com_start(interaction: discord.Interaction, boot: str):
 		if status == 0:
 			print("鯖が死んでたので起動")
 			#FIFOパイプ作成
-			if os.path.exists(JE_FIFO_IN): os.remove(JE_FIFO_IN)
-			if os.path.exists(JE_FIFO_OUT): os.remove(JE_FIFO_OUT)
+			if os.path.exists(JE_FIFO_IN):
+				os.remove(JE_FIFO_IN)
+			if os.path.exists(JE_FIFO_OUT):
+				os.remove(JE_FIFO_OUT)
 			os.mkfifo(JE_FIFO_IN)
 			os.mkfifo(JE_FIFO_OUT)
 			status = 2	#ステータスを起動処理中にする
@@ -600,11 +620,13 @@ async def com_start(interaction: discord.Interaction, boot: str):
 			#鯖起動
 			try:
 				print("起動命令送信")
-				subprocess.Popen(command, cwd=directory)	#起動聖句
-				subprocess.Popen(je_terminal, cwd=directory, shell=True)	#操作端末起動
+				subprocess.Popen(command, cwd=directory, shell=True)	#起動聖句
+				await asyncio.sleep(2)	#鯖起動待ち
 				#パイプ接続
 				stdin_pipe_je = open(JE_FIFO_IN, 'w', buffering=1)
-				stdout_pipe_je = open(JE_FIFO_OUT, 'r', buffering=1)
+				stdout_fd = os.open(JE_FIFO_OUT, os.O_RDONLY | os.O_NONBLOCK)
+				stdout_pipe_je = os.fdopen(stdout_fd, 'r', buffering=1)
+				subprocess.Popen(je_terminal, cwd=directory)	#操作端末起動
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
 						await channel.send(f'JE鯖の起動命令を送ったナリよ')
@@ -715,7 +737,7 @@ async def com_start(interaction: discord.Interaction, boot: str):
 			except subprocess.CalledProcessError as e:
 				await interaction.followup.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
 				print("subprocess例外\r\n" + e)
-			except selenium.no_such_element_exception.NoSuchElementException as e:
+			except selenium.common.exceptions.NoSuchElementException as e:
 				await interaction.followup.send("多分HTML構造変わってる気がする\r\n例外内容:" + str(e))
 				print("HTML構造変更?\r\n" + str(e))
 			except selenium.timeout_exception.TimeoutException as e:
@@ -758,15 +780,15 @@ async def com_start(interaction: discord.Interaction, boot: str):
 					os.remove(BE_FIFO_OUT)
 				os.mkfifo(BE_FIFO_IN)
 				os.mkfifo(BE_FIFO_OUT)
-				screen_cmd = [
-					"screen", "-dmS", session_name_be, 
-					"bash", "-c", be_start
-				]
-				subprocess.Popen(screen_cmd, cwd=directory_be)	#起動聖句
-				subprocess.Popen(be_terminal, cwd=directory_be, shell=True)	#操作端末起動
+				#鯖起動
+				screen_cmd = ["screen", "-dmS", session_name_be, "bash", "-c", be_start]
+				subprocess.Popen(screen_cmd, cwd=directory_be)
+				await asyncio.sleep(3)	#鯖起動待ち
 				#パイプ接続
 				stdin_pipe_be = open(BE_FIFO_IN, 'w', buffering=1)
-				stdout_pipe_be = open(BE_FIFO_OUT, 'r', buffering=1)
+				stdout_fd = os.open(BE_FIFO_OUT, os.O_RDONLY | os.O_NONBLOCK)
+				stdout_pipe_be = os.fdopen(stdout_fd, 'r', buffering=1)
+				subprocess.Popen(be_terminal, cwd=directory_be)	#操作端末起動
 				for channel in client.get_all_channels():
 					if channel.name == Manage_Channel:
 						await channel.send(f'BE鯖の起動命令を送ったナリよ')
