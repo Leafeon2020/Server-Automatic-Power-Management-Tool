@@ -8,11 +8,11 @@
 
 #仕様メモ
 #改行コードはとりあえずCR+LFで統一してます OSはLinuxですがWindows方言だと多分どのOSでも問題無いかと
-#コマンド実行する外部コマンドは全部Linux用です Windowsでは使えません macOSは知らん
+#外部プログラム及びBE鯖バイナリの関係上Debian系専用です
 #commnadの最初の変数を変えれば別のDEでも動く
 #起動メッセージはURL直リンで対応という荒業 403吐くようになったらオラ知らね(無責任)
 #圧縮周りは最終的に容量が小さくなりそうなxzで圧縮してる pixzに処理投げて待ち時間短縮や(誤差レベル)
-#鯖本体を直接操作して動かす事を想定してるため監視の自動停止はわざとしてません 止める時はtask.stop()とwatchdog.stop()で止めてください
+#マイクラ自体を外部から動かす事も想定してるため監視の自動停止はわざとしてません 止める時はtask.stop()とwatchdog.stop()で止めてください
 #定期死活確認は死んでたら処理を全部すっ飛ばします 外部から起動した場合は/statusでフラグを恒心してやる必要があります
 #クラッシュログ通知は一度出力したら止まりますが毎分起動します
 #visudoでsudo systenctl suspendをパスワード不要で実行出来る環境にする必要あり
@@ -24,22 +24,18 @@
 #復帰時はまずプロセスを再開(この時はまだwatchdogが止まってる)してからwathcdog_switch.javaを反応させるためファイルを書き換えてWatchdogThreadを再起動します
 #復帰時の待機時間は長めに取っておいたほうがいいです kill -CONTを飛ばしてから実際にプロセスが動き出すまで結構時間掛かってる感じがしたので1分待機させてます
 #クラッシュした時の対策とかも兼ねて自動再起動は入れてません(というよりSpigot側に実装されてる)
-#JEBE両対応してますが別にどちらか片方だけでも(多分)例外吐かずに動きます
+#JEBE両対応してます
 #Firefoxはsnap版の前提になってます 多分OSのデフォで入ってるやつはsnap版です(確証無し) ちなみにテスト環境はUbuntu Server 24.04 LTSにLDMとMATE仕込んだ環境です
 #ファイルのDLに関しては全て投げ出してwgetで取得してもいいんじゃないの? Used to be 諦めるのは easy
 
 #開発用メモ
 #コマンドを呼び出した後はawait interaction.response.send_message("メッセージ")で返信しないと応答無し扱いになる
-#毎回チャンネル名取得してるけどグローバル変数化したら最初の1回だけで済むかも
+#毎回チャンネル名取得してるけどグローバル変数化したら最初の1回だけで済むかも→関数化して1行で使えるようにしました
 #鯖起動だけsubprocess.Popenにしてるのはsubprocess.runだと鯖が死ぬまで応答が無くなるため
 #subprocess.Popenの引数の渡し方は呼び出すやつ,オプション1,オプション2…みたいな書き方しないとエラー吐いて無理って言われる
 #返信が3秒以上遅れる場合はawait interaction.response.defer()で考え中にしてawait interaction.followup.send("")でやらないとエラーになる
 #グローバル変数化はPythonの仕様上関数ごとに呼び出さないといけないらしい
 #killコマンド関連はkillallに変えたほうがコード長が短くなる事を書いてから知りました もう面倒なんでこのまま行きます
-
-#ToDo
-#サーバープロセスにkillコマンド使った時の反応を確認(SIGTERMで/stopの代替になればそれ使う)
-#関数の置いてる場所を整理して可読性を上げる
 
 #恒心ログ
 #2025/04/18 v1 - リリース
@@ -61,7 +57,7 @@
 #2025/12/15 v17 - BE鯖のDLが出来てなかった問題を解決(と細かいとこの修正)
 #2025/12/19 v18 - BE鯖アプデ方式変更
 #2026/01/21 v19 - chmodの追加とバックアップ周りのバグ修正
-#2026/01/28 v20 - 関数類の整理、終了コマンドの修正、端末制御周りの変更、パイプ接続実装、screen起動実装 多分このバージョン没
+#2026/02/02 v20dev - 関数類の整理、端末制御周りの変更、終了コマンドの修正(ここまで実装)、パイプを用いたブラックリスト・ホワイトリストの編集、DM再起動の実装
 
 #Discord類のインポート
 import discord
@@ -85,6 +81,13 @@ import subprocess
 import shutil
 import asyncio
 from urllib.parse import urlparse
+import time
+
+#初期設定
+intents = discord.Intents.default()	#反応イベント指定
+client = discord.Client(intents=intents)	#Botクライアント読み込み
+tree = app_commands.CommandTree(client)	#コマンド類宣言
+
 
 #初期設定
 intents = discord.Intents.default()	#反応イベント指定
@@ -97,14 +100,14 @@ tree = app_commands.CommandTree(client)	#コマンド類宣言
 TOKEN: str = "https://krsw-wiki.in/wiki/?cuid=3896"	#Botのトークン
 process_name: str = "java"	#プロセス名指定
 process_name_be: str = "bedrock_server"	#プロセス名指定
-Manage_Channel: str = "管理bot用"	#書き込み先
+Manage_Channel: str = "うんち"	#書き込み先
 directory: str = "/home/krsw/.minecraft"	#対象ディレクトリ
 directory_be: str = "/home/krsw/Minecraft_Bedrock"	#対象ディレクトリ
 backup: str = "/home/krsw/backup"	#バックアップ保存先
 backup_be: str = "/home/krsw/Minecraft_Bedrock/backup"	#バックアップ保存先
 port_a: int = 2783	#ポート番号その1(JEポート)
 port_b: int = 40298	#ポート番号その2(SSHポート)
-port_c: int = 43044	#ポート番号その3(BEポートIPv4)
+port_c: int = 43044	#ポート番号その3(BEポート)
 port_d: int = 5900	#ポート番号その4(VNCポート)
 sleep_timer: int = 10	#スリープ移行までの時間(分)
 cloud: str = "/home/krsw/MEGA"	#クラウドストレージの保存先
@@ -130,25 +133,14 @@ firefox_bin: str = "/snap/firefox/current/usr/lib/firefox/firefox"	#Firefox実�
 firefoxdriver_bin: str = "/snap/firefox/current/usr/lib/firefox/geckodriver"	#GeckoDriver実行ファイルパス
 pipe_flag_je: bool = False	#JEパイプフラグ
 pipe_flag_be: bool = False	#BEパイプフラグ
-JE_FIFO_IN: str = "/tmp/je_session_in"	#JE鯖パイプ入力先
-JE_FIFO_OUT: str = "/tmp/je_session_out"	#JE鯖パイプ出力先
-BE_FIFO_IN: str = "/tmp/be_session_in"	#BE鯖パイプ入力先
-BE_FIFO_OUT: str = "/tmp/be_session_out"	#BE鯖パイプ出力先
 session_name_je: str = "je_server"	#JE鯖screenセッション名
 session_name_be: str = "be_server"	#BE鯖screenセッション名
-#非同期入出力用変数
-#JE
-stdin_pipe_je = None
-stdout_pipe_je = None
-#BE
-stdin_pipe_be = None
-stdout_pipe_be = None
 
 #自動実行コマンド類
 #JE鯖起動コマンド
-command: str = f"screen -dmS {session_name_je} bash -c 'tail -f {JE_FIFO_IN} | java -Xmx28G -jar {directory}/CatServer-universal.jar 2>&1 | tee {JE_FIFO_OUT}'"	#鯖起動命令
+command: str = f"java -Xmx28G -jar {directory}/CatServer-universal.jar"	#鯖起動命令
 #BE鯖起動コマンド
-be_start: str = (f"export LD_LIBRARY_PATH={directory_be}; tail -f {BE_FIFO_IN} | {directory_be}/{process_name_be} 2>&1 | tee {BE_FIFO_OUT}")	#鯖起動命令
+be_start: str = "LD_LIBRARY_PATH=. ./bedrock_server;"	#鯖起動命令
 #端末
 je_terminal: str =(
 	"mate-terminal", 
@@ -195,21 +187,19 @@ async def mcstop(version: int):
 	global process_name_be
 	global pipe_flag_je
 	global pipe_flag_be
-	global stdin_pipe_je
-	global stdin_pipe_be
 	#JE鯖停止
 	if version == 0:
 		if pipe_flag_je == True:	#パイプ接続中
-			try:
-				if stdin_pipe_je:
-					await stdin_pipe_je.write("stop\r\n")
-					await stdin_pipe_je.flush()
-				pipe_flag_je = False
-				print("JE停止命令送信完了")
-				return True
-			except Exception as e:
-				print(f"JE停止例外\r\n{e}")
-				return e
+			result = PTY_manager.stop_program(["JE"]) 	#PTYポア
+			if result == False:
+				try:
+					subprocess.run(["pkill", "-f", process_name, "-s", "SIGTERM"], check=True)
+					print("JE強制停止完了")
+				except subprocess.CalledProcessError as e:
+					print(f"JE強制停止例外\r\n{e}")
+					return e
+			print("JE停止命令送信完了")
+			return True
 		else:	#パイプ未接続
 			try:
 				subprocess.run(["pkill", "-f", process_name, "-s", "SIGTERM"], check=True)
@@ -221,16 +211,16 @@ async def mcstop(version: int):
 	#BE鯖停止
 	elif version == 1:
 		if pipe_flag_be == True:	#パイプ接続中
-			try:
-				if stdin_pipe_be:
-					await stdin_pipe_be.write("stop\r\n")
-					await stdin_pipe_be.flush()
-				pipe_flag_be = False
-				print("BE停止命令送信完了")
-				return True
-			except Exception as e:
-				print(f"BE停止例外\r\n{e}")
-				return e
+			result = PTY_manager.stop_program(["BE"]) 	#PTYポア
+			if result == False:
+				try:
+					subprocess.run(["pkill", "-f", process_name_be, "-s", "SIGTERM"], check=True)
+					print("BE強制停止完了")
+				except subprocess.CalledProcessError as e:
+					print(f"BE強制停止例外\r\n{e}")
+					return e
+			print("BE停止命令送信完了")
+			return True
 		else:	#パイプ未接続
 			try:
 				subprocess.run(["pkill", "-f", process_name_be, "-s", "SIGTERM"], check=True)
@@ -242,7 +232,6 @@ async def mcstop(version: int):
 
 #PID取得
 def get_pid(switch: int):
-	global process_name
 	try:
 		if switch == 0:
 			result = subprocess.run(["pgrep", "-o", process_name], capture_output=True, text=True)
@@ -293,9 +282,7 @@ async def create_backup(switch: int):
 		elif switch == 1:
 			subprocess.run(["tar", "-I", "pixz", "-cvpf", filename, "-C", directory_be + "/worlds", "./world"], check=True, cwd = backup_be)	#pixzに投げる
 		print("xzで圧縮")
-		for channel in client.get_all_channels():
-			if channel.name == Manage_Channel:
-				await channel.send(f'バックアップを生成しました')
+		await post_message("バックアップを生成しました")
 		#クラウドにバックアップするか
 		if cloud_swtich == True:
 			cloud_backup: str = get_latest_backup_file(cloud, switch)	#既存バックアップ名取得
@@ -320,14 +307,151 @@ async def create_backup(switch: int):
 	#例外処理
 	except subprocess.CalledProcessError as e:
 		print("圧縮例外\r\n" + e)
-		for channel in client.get_all_channels():
-			if channel.name == Manage_Channel:
-				await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
+		await post_message(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
 	except Exception as e:
 			print(f"Exception\r\n" + e)
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send(f'なんかやらかしてるみたいですよ…\r\n詳細:{e}')
+			await post_message(f'なんかやらかしてるみたいですよ…\r\n詳細:{e}')
+
+#投稿
+async def post_message(message: str):
+	#チャンネル識別
+	for channel in client.get_all_channels():
+		if channel.name == Manage_Channel:
+			await channel.send(message)
+
+#PTY周りの処理
+#PTY管理クラス
+class PTY_manager:
+	def __init__(self):
+		self.programs = {}
+
+	#鯖起動
+	async def start_program(self, version: str, auto_attach=True):
+		global pipe_flag_je
+		global pipe_flag_be
+		if version not in ["JE", "BE"]:
+			print(f"不明なバージョン指定: {version}")
+			await post_message(f"不明なバージョン指定: {version}")
+			return False
+		if version == "JE":
+			session_name = session_name_je
+			name = process_name
+			com = command
+		elif version == "BE":
+			session_name = session_name_be
+			name = process_name_be
+			com = be_start
+		if self.is_running(name):
+			print(f"プログラム '{name}' は既に実行中です")
+			return False
+		
+		#screenセッションで起動
+		try:
+			subprocess.Popen([
+				'screen', '-dmS', session_name, 'bash', '-c', com
+			])
+		except Exception as e:
+			print(f"プログラム起動例外: {e}")
+			return e
+		#パイプフラグ
+		if version == "JE":
+			pipe_flag_je = True
+		elif version == "BE":
+			pipe_flag_be = True
+		#プログラム情報を保存
+		self.programs[name] = {
+			'session': session_name,
+			'command': com,
+			'started_at': time.time()
+		}
+		print(f"プログラム '{name}' を起動しました (セッション: {session_name})")
+		# 自動でウィンドウを開く
+		if auto_attach:
+			time.sleep(0.5)  # セッション作成を待つ
+			if version == "JE":
+				subprocess.Popen(je_terminal)
+			elif version == "BE":
+				subprocess.Popen(be_terminal)
+		return True
+	
+	#コンソール起動
+	def open_terminal(self, version: str):
+		#コンソール表示
+		if version == "JE":
+			session = session_name_je
+			if version not in self.programs:
+				print(f"プログラム '{process_name}' は登録されていません")
+				return False
+		elif version == "BE":
+			session = session_name_be
+			if version not in self.programs:
+				print(f"プログラム '{process_name_be}' は登録されていません")
+				return False
+		
+		session = self.programs[version]['session']
+		#コンソール表示
+		subprocess.Popen([
+			'mate-terminal',
+			'--title', f'{version}_server_terminal',
+			'--maximize',
+			'-e', f'screen -r {session}'
+		])
+		
+		print(f"'{version}' の端末を開きました")
+		return True
+	
+	#鯖停止
+	def stop_program(self, version: str, delete: bool):
+		global pipe_flag_je
+		global pipe_flag_be
+		if delete == True:
+			if version == "JE":
+				name = process_name
+			elif version == "BE":
+				name = process_name_be
+			if name not in self.programs:
+				print(f"プログラム '{name}' は登録されていません")
+				return False
+			#命令送信
+			session_name = self.programs[name]['session']
+			try:
+				subprocess.run(['screen', '-S', session_name, "-X", "stuff", "stop\n"])
+				if version == "JE":
+					pipe_flag_je = False
+				elif version == "BE":
+					pipe_flag_be = False
+			except Exception as e:
+				print(f"プログラム停止例外: {e}")
+				return e
+		#リストから削除
+		del self.programs[name]
+		print(f"プログラム '{name}' を終了しました")
+		return True
+	
+	#死活監視
+	def is_running(self, version: str) -> bool:
+		global pipe_flag_je
+		global pipe_flag_be
+		if version == "JE":
+			name = process_name
+		elif version == "BE":
+			name = process_name_be
+		#死んでたらリスト消去
+		if name not in self.programs:
+			del self.programs[name]
+			if version == "JE":
+				pipe_flag_je = False
+			elif version == "BE":
+				pipe_flag_be = False
+			return False
+		
+		session_name = self.programs[name]['session']
+		result = subprocess.run(
+			['screen', '-ls'],
+			capture_output=True,
+			text=True
+		)
+		return session_name in result.stdout
 
 #本体
 #起動時処理 on_readyが条件なんでスリープ復帰時にも処理されます
@@ -346,32 +470,31 @@ async def on_ready():
 	print("サーバーマシン、起動!w")
 	await client.change_presence(activity=discord.Game("開示請求を発行中…"))
 	await tree.sync()	#コマンド読み込み
-	#書き込み先チャンネルID取得
-	for channel in client.get_all_channels():
-		if channel.name == Manage_Channel:
-			await channel.send("https://riceballman.web.fc2.com//AA-Illust/Data/NeetOkita.jpg")	#起動通知
+	await post_message("https://riceballman.web.fc2.com//AA-Illust/Data/NeetOkita.jpg")	#起動通知
 	#鯖生存確認
 	print("死活確認")
 	#JE
 	try:
+		PTY_manager.is_running("JE")
 		subprocess.run(["pgrep", process_name], check=True)	#pgrepが例外吐くかどうかで死活確認
 		status = 1	#生存フラグ
 	except subprocess.CalledProcessError:	#死んでる時
 		status = 0	#死亡フラグ
-		pipe_flag_je = False	#パイプ切断
-		for channel in client.get_all_channels():
-			if channel.name == Manage_Channel:
-				await channel.send(f'JE鯖が起動してないですを')
+		if pipe_flag_je == True:	#screen分岐
+			pipe_flag_je = False	#パイプ切断
+			PTY_manager.stop_program("JE", False)	#PTYポア
+		await post_message("JE鯖が起動してないですを")
 	#BE
 	try:
+		PTY_manager.is_running("BE")
 		subprocess.run(["pgrep", process_name_be], check=True)	#pgrepが例外吐くかどうかで死活確認
 		status_be = 1	#生存フラグ
 	except subprocess.CalledProcessError:	#死んでる時
 		status_be = 0	#死亡フラグ
-		pipe_flag_be = False	#パイプ切断
-		for channel in client.get_all_channels():
-			if channel.name == Manage_Channel:
-				await channel.send(f'BE鯖が起動してないですを')
+		if pipe_flag_be == True:	#screen分岐
+			pipe_flag_be = False	#パイプ切断
+			PTY_manager.stop_program("BE", False)	#PTYポア
+		await post_message("BE鯖が起動してないですを")
 	await tree.sync()	#コマンドリスト恒心
 	print("制御ファイル存在確認")
 	#watchdogフラグ制御ファイル作成
@@ -407,9 +530,7 @@ async def on_ready():
 		intosleep = False
 		sleep = -1
 		#subprocess.run(["sudo", "systemctl", "restart", "logmein-hamachi.service"], check = True)	#Hamachiサービス再起動
-		for channel in client.get_all_channels():
-			if channel.name == Manage_Channel:
-				await channel.send(f'復帰処理が終わりました')
+		await post_message("復帰処理が終わりました")
 		sleep = -1
 	try:
 		watchdog.start()	#クラッシュログ監視起動
@@ -421,10 +542,9 @@ async def on_ready():
 		print("死活確認起動")
 	except:
 		print("死活確認起動済")
-	await asyncio.sleep(120)	#恒心検知処理が動くようにちょっと待つ
+	await asyncio.sleep(60)	#恒心検知処理が動くようにちょっと待つ
 	with open(switch_file, 'w') as f:
 		f.write("1")
-	return
 
 #監視処理
 @tasks.loop(seconds=60)	#毎分確認
@@ -446,38 +566,30 @@ async def task():
 	if status == 1:	#プロセスが死んでたらスルー(連投対策)
 		print("死活確認中")
 		try:
+			PTY_manager.is_running("JE")
 			subprocess.run(["pgrep", process_name], check=True)
 			status = 1	#生存フラグ
 			print("生きてた")
 		except subprocess.CalledProcessError:
 			status = 0	#死亡フラグ
-			#パイプ削除
-			if os.path.exists(JE_FIFO_IN):
-				os.remove(JE_FIFO_IN)
-			if os.path.exists(JE_FIFO_OUT):
-				os.remove(JE_FIFO_OUT)
-			pipe_flag_je = False	#パイプ切断
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send(f'なんてこった!JEサーバーが殺されちゃった!\r\nこの人でなし!')
+			if pipe_flag_je == True:
+				pipe_flag_je = False	#パイプ切断
+				PTY_manager.stop_program("JE", False)	#PTYポア
+			await post_message(f'なんてこった!JEサーバーが殺されちゃった!\r\nこの人でなし!')
 			print("JEが死んでた")
 	#BE
 	if status_be == 1:	#プロセスが死んでたらスルー(連投対策)
 		try:
+			PTY_manager.is_running("BE")
 			subprocess.run(["pgrep", process_name_be], check=True)
 			status_be = 1	#生存フラグ
 			print("生きてた")
 		except subprocess.CalledProcessError:
 			status_be = 0	#死亡フラグ
-			#パイプ削除
-			if os.path.exists(BE_FIFO_IN):
-				os.remove(BE_FIFO_IN)
-			if os.path.exists(BE_FIFO_OUT):
-				os.remove(BE_FIFO_OUT)
-			pipe_flag_be = False	#パイプ切断
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send(f'なんてこった!BEサーバーが殺されちゃった!\r\nこの人でなし!')
+			if pipe_flag_be == True:
+				pipe_flag_be = False	#パイプ切断
+				PTY_manager.stop_program("BE", False)	#PTYポア
+			await post_message(f'なんてこった!BEサーバーが殺されちゃった!\r\nこの人でなし!')
 			print("BEが死んでた")
 	#接続数監視
 	#復帰フラグ時の処理
@@ -541,25 +653,20 @@ async def task():
 					print("プロセス指定不可(BE)")
 			sleep = -1
 			intosleep = True
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send(f'スリープモードに移行します\r\n復帰には/bootを使ってください')
+			await post_message(f'スリープモードに移行します\r\n復帰には/bootを使ってください')
 			print("スリープモード移行")
 			try:
 				subprocess.run(["sudo", "systemctl", "suspend"], check = True)
 				task.stop()
 			except subprocess.CalledProcessError as e:
 				print("スリープ移行失敗\r\n" + e)
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'なんか知らんがスリープ出来ないぞ visudoとかの仕込みちゃんとしたか?\r\n例外内容:\r\n{e}')
+				await post_message(f'なんか知らんがスリープ出来ないぞ visudoとかの仕込みちゃんとしたか?\r\n例外内容:\r\n{e}')
 				auto_sleep = False	#スリープモード移行失敗時は自動スリープを無効化
 	#復帰フラグ解除
 	if resume == True and sleep > 5:
 		print("待機時間終わり!")
 		resume = False
 		sleep = 0
-	return
 
 #クラッシュログ通知
 @tasks.loop(seconds=60)	#起動聖句を思いつかなかったのでtask.loopで起動してます
@@ -576,11 +683,8 @@ async def watchdog():
 		latest_file = latest_modified_file_path[0]
 		#ログ抽出
 		crash_log = extract(latest_file, start_str, end_str)
-		for channel in client.get_all_channels():
-			if channel.name == Manage_Channel:
-				await channel.send(f'鯖は死んだ… 残されたダイイングメッセージには以下のように残されていた\r\n```log\r\n' + crash_log + "\r\n```")
+		await post_message(f'鯖は死んだ… 残されたダイイングメッセージには以下のように残されていた\r\n```log\r\n' + crash_log + "\r\n```")
 		break
-	return
 
 #コマンド処理
 #起動
@@ -588,13 +692,10 @@ async def watchdog():
 @describe(boot="起動対象")
 @app_commands.autocomplete(boot=version_autocomplete)
 async def com_start(interaction: discord.Interaction, boot: str):
+	#JE起動処理
 	if boot == "JE":
 		global status
 		global pipe_flag_je
-		global stdin_pipe_je
-		global stdout_pipe_je
-		global stdin_pipe_be
-		global stdout_pipe_be
 		send_flag: bool = False	#メッセージ送信フラグ
 		print("JE起動プロセス開始")
 		try:
@@ -605,45 +706,28 @@ async def com_start(interaction: discord.Interaction, boot: str):
 		#起動処理
 		if status == 0:
 			print("鯖が死んでたので起動")
-			#FIFOパイプ作成
-			if os.path.exists(JE_FIFO_IN):
-				os.remove(JE_FIFO_IN)
-			if os.path.exists(JE_FIFO_OUT):
-				os.remove(JE_FIFO_OUT)
-			os.mkfifo(JE_FIFO_IN)
-			os.mkfifo(JE_FIFO_OUT)
 			status = 2	#ステータスを起動処理中にする
 			await interaction.response.send_message("起動処理を実行します")
 			#バックアップ生成
 			await create_backup(0)
 			#メッセージ送信
 			#鯖起動
-			try:
-				print("起動命令送信")
-				subprocess.Popen(command, cwd=directory, shell=True)	#起動聖句
-				await asyncio.sleep(2)	#鯖起動待ち
-				#パイプ接続
-				stdin_pipe_je = open(JE_FIFO_IN, 'w', buffering=1)
-				stdout_fd = os.open(JE_FIFO_OUT, os.O_RDONLY | os.O_NONBLOCK)
-				stdout_pipe_je = os.fdopen(stdout_fd, 'r', buffering=1)
-				subprocess.Popen(je_terminal, cwd=directory)	#操作端末起動
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'JE鯖の起動命令を送ったナリよ')
-				status = 1	#起動処理中から起動に変更
-				pipe_flag_je = True	#パイプ接続
-				print("JE起動成功")
-			except subprocess.CalledProcessError as e:
-				print("起動例外\r\n" + e)
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
-						status = 0	#死んだ扱いにする
+			print("起動命令送信")
+			result = await PTY_manager.start_program("JE")
+			if result == True:
+				await post_message("JE鯖の起動命令を送ったナリよ")
+			elif result == False:
+				await post_message("JE鯖は既に起動中ナリよ")
+			else:
+				await post_message(f'なんか上手いこと行かなかったみたいですよ(PTY例外)\r\n例外詳細:{result}')
+				status = 0	#死んだ扱いにする
+				return
+			status = 1	#起動処理中から起動に変更
+			pipe_flag_je = True	#遠隔フラグ
+			print("JE起動成功")
 		#多重起動防止
 		elif status == 2:
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send(f"JE鯖は起動中なりを\r\nしばし待たれよ")
+			await post_message(f"JE鯖は起動中なりを\r\nしばし待たれよ")
 		else:
 			print("多重起動防止")
 			await interaction.response.send_message(f'JE鯖、生きてるってよ')
@@ -652,8 +736,6 @@ async def com_start(interaction: discord.Interaction, boot: str):
 		await interaction.response.defer()
 		global status_be
 		global pipe_flag_be
-		global stdin_pipe_be
-		global stdout_pipe_be
 		send_flag: bool = False	#メッセージ送信フラグ
 		print("BE起動プロセス開始")
 		try:
@@ -697,9 +779,7 @@ async def com_start(interaction: discord.Interaction, boot: str):
 					#権限付与
 					subprocess.run(["chmod", "755", process_name_be], cwd=directory_be)
 					#通知
-					for channel in client.get_all_channels():
-						if channel.name == Manage_Channel:
-							await channel.send("DL完了")
+					await post_message("DL完了")
 					print("BE鯖DL完了")
 				#アプデ
 				elif file_name != binary_name:
@@ -730,82 +810,67 @@ async def com_start(interaction: discord.Interaction, boot: str):
 					#権限付与
 					subprocess.run(["chmod", "755", process_name_be], cwd=directory_be)
 					#通知
-					for channel in client.get_all_channels():
-						if channel.name == Manage_Channel:
-							await channel.send("アプデ完了")
+					await post_message("アプデ完了")
 			#例外処理
 			except subprocess.CalledProcessError as e:
 				await interaction.followup.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
 				print("subprocess例外\r\n" + e)
+				return
 			except selenium.common.exceptions.NoSuchElementException as e:
 				await interaction.followup.send("多分HTML構造変わってる気がする\r\n例外内容:" + str(e))
 				print("HTML構造変更?\r\n" + str(e))
+				return
 			except selenium.timeout_exception.TimeoutException as e:
 				await interaction.followup.send("通信が遅すぎますね…(タイムアウト)\r\n例外内容:" + str(e))
 				print("タイムアウト\r\n" + str(e))
+				return
 			except selenium.web_driver_exception.WebDriverException as e:
 				await interaction.followup.send("Firefoxが立ち上がらないんだがバイナリの指定間違えてない?\r\n例外内容:" + str(e))
 				print("Selenium起動失敗\r\n" + str(e))
+				return
 			except selenium.invalid_selector_exception.InvalidSelectorException as e:
 				await interaction.followup.send("強引にURLを取得する荒業が対処されたっぽいですね…(URL抽出元ID変更)\r\n例外内容:" + str(e))
 				print("URL抽出元ID変更?\r\n" + str(e))
+				return
 			except selenium.webdriver_exception.WebDriverException as e:
 				await interaction.followup.send("Firefox周りでどうやらエラー吐いてるぞ\r\n例外内容:" + str(e))
 				print("Firefox周りで例外\r\n" + str(e))
+				return
 			except selenium.exception.Exception as e:
 				await interaction.followup.send("Seleniumでよう分からん例外吐いた\r\n例外内容:" + str(e))
 				print("Selenium例外\r\n" + str(e))
+				return
 			except Exception as e:
 				await interaction.followup.send("なんか知らんがBE鯖のアプデ確認に失敗しました\r\n例外内容:" + str(e))
 				print("謎例外\r\n" + str(e))
+				return
 			print("鯖が死んでたので起動")
 			status_be = 2	#ステータスを起動処理中にする
 			#フラグで送信方法変更
 			if send_flag == False:	#返信で対応
 				await interaction.followup.send("起動処理を実行します")
 			else:	#新規送信で対応
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send("起動処理を実行します")
+				await post_message("起動処理を実行します")
 			#バックアップ生成
 			await create_backup(1)
 			#メッセージ送信
 			#鯖起動
-			try:
-				print("起動命令送信")
-				#FIFOパイプ作成
-				if os.path.exists(BE_FIFO_IN):
-					os.remove(BE_FIFO_IN)
-				if os.path.exists(BE_FIFO_OUT):
-					os.remove(BE_FIFO_OUT)
-				os.mkfifo(BE_FIFO_IN)
-				os.mkfifo(BE_FIFO_OUT)
-				#鯖起動
-				screen_cmd = ["screen", "-dmS", session_name_be, "bash", "-c", be_start]
-				subprocess.Popen(screen_cmd, cwd=directory_be)
-				await asyncio.sleep(3)	#鯖起動待ち
-				#パイプ接続
-				stdin_pipe_be = open(BE_FIFO_IN, 'w', buffering=1)
-				stdout_fd = os.open(BE_FIFO_OUT, os.O_RDONLY | os.O_NONBLOCK)
-				stdout_pipe_be = os.fdopen(stdout_fd, 'r', buffering=1)
-				subprocess.Popen(be_terminal, cwd=directory_be)	#操作端末起動
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'BE鯖の起動命令を送ったナリよ')
+			print("起動命令送信")
+			result = await PTY_manager.start_program("BE")
+			if result == True:
+				await post_message("BE鯖の起動命令を送ったナリよ")
 				status_be = 1	#起動処理中から起動に変更
 				pipe_flag_be = True	#パイプ接続
 				print("BE起動成功")
-			except subprocess.CalledProcessError as e:
-				print("起動例外\r\n" + e)
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
-						status_be = 0	#死んだ扱いにする
+			elif result == False:
+				await post_message("BE鯖は既に起動中ナリよ")
+			else:
+				await post_message(f'なんか上手いこと行かなかったみたいですよ(PTY例外)\r\n例外詳細:{result}')
+				status_be = 0	#死んだ扱いにする
+				return
 		#多重起動防止
 		elif status_be == 2:
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send(f"BE鯖は起動中なりを\r\nしばし待たれよ")
+			post_message(f"BE鯖は起動中なりを\r\nしばし待たれよ")
 		else:
 			print("多重起動防止")
 			await interaction.response.send_message(f'BE鯖、生きてるってよ')
@@ -820,38 +885,36 @@ async def com_start(interaction: discord.Interaction, boot: str):
 async def com_status(interaction: discord.Interaction, target: str):
 	if target == "JE":
 		global status
+		global pipe_flag_je
+		global pipe_flag_be
 		print("JE死活確認(コマンド)")
 		try:
 			subprocess.run(["pgrep", process_name], check=True)
 			status = 1	#生存フラグ
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await interaction.response.send_message(f'生きてる')
+			await interaction.response.send_message(f'生きてる')
 			print("鯖生存")
 		except subprocess.CalledProcessError:
 			status = 0	#死亡フラグ
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await interaction.response.send_message(f'陳死亡')
+			if pipe_flag_je == True:
+				pipe_flag_je = False	#パイプ切断
+				PTY_manager.stop_program("JE", False)	#PTYポア
+			await interaction.response.send_message(f'陳死亡')
 			print("鯖死亡")
-		return
 	elif target == "BE":
 		global status_be
 		print("BE死活確認(コマンド)")
 		try:
 			subprocess.run(["pgrep", process_name_be], check=True)
 			status_be = 1	#生存フラグ
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await interaction.response.send_message(f'生きてる')
+			await interaction.response.send_message(f'生きてる')
 			print("鯖生存")
 		except subprocess.CalledProcessError:
 			status_be = 0	#死亡フラグ
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await interaction.response.send_message(f'陳死亡')
+			if pipe_flag_be == True:
+				pipe_flag_be = False	#パイプ切断
+				PTY_manager.stop_program("BE", False)	#PTYポア
+			await interaction.response.send_message(f'陳死亡')
 			print("鯖死亡")
-		return
 	else:
 		await interaction.response.send_message(f'その引数は無効っスよ')
 
@@ -929,14 +992,10 @@ async def force_backup(interaction: discord.Interaction, target: str):
 	#例外処理
 	except subprocess.CalledProcessError as e:
 		print("圧縮例外\r\n" + e)
-		for channel in client.get_all_channels():
-			if channel.name == Manage_Channel:
-				await channel.send(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
+		await post_message(f'なんか上手いこと行かなかったみたいですよ(subprocess例外)\r\n例外詳細:{e}')
 	except Exception as e:
 			print(f"Exception\r\n" + e)
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send(f'なんかやらかしてるみたいですよ…\r\n詳細:{e}')
+			await post_message(f'なんかやらかしてるみたいですよ…\r\n詳細:{e}')
 
 #デバッグ用
 @tree.command(name="debug", description="状態変数を返します")
@@ -949,6 +1008,8 @@ async def debug(interaction: discord.Interaction):
 	global counter
 	global process_name
 	global process_name_be
+	global pipe_flag_je
+	global pipe_flag_be
 	pid = get_pid(0)
 	pid_be = get_pid(1)
 	if pid == None:
@@ -967,8 +1028,13 @@ async def debug(interaction: discord.Interaction):
 		state_be = "1(プロセス実行中)"
 	elif status_be == 2:
 		state_be = "2(起動処理中)"
-	await interaction.followup.send("status:" + state + "\r\nstatus_be:" + state_be + "\r\n自動スリープフラグ:" + str(auto_sleep) + "\r\n待機時間:" + str(sleep) + "\r\n同時アクセス数:" + str(counter) + "\r\n" + process_name + "のPID:" + pid + "\r\n" + process_name_be + "のPID:" + pid_be)
-	return
+	if pipe_flag_je == True:
+		pipe_je = "接続中"
+	else:
+		pipe_je = "未接続"
+	if pipe_flag_be == True:
+		pipe_be = "接続中"
+	await interaction.followup.send("status:" + state + "\r\nstatus_be:" + state_be + "\r\n自動スリープフラグ:" + str(auto_sleep) + "\r\n待機時間:" + str(sleep) + "\r\n同時アクセス数:" + str(counter) + "\r\n" + process_name + "のPID:" + pid + "\r\n" + process_name_be + "のPID:" + pid_be + "\r\nJE遠隔フラグ:" + pipe_je + "\r\nBE遠隔フラグ:" + pipe_be)
 
 #プレイヤー数取得
 @tree.command(name="players", description="プレイヤー数を表示します")
@@ -991,7 +1057,6 @@ async def com_start(interaction: discord.Interaction):
 	except TimeoutError:
 		player_be = 0
 	await interaction.followup.send("現在JE鯖には" + str(player_je) + "人が、BE鯖には" + str(player_be) + "人が接続しています。")
-	return
 
 #サーバー停止処理
 @tree.command(name="stop", description="サーバープロセスを停止します")
@@ -1001,20 +1066,22 @@ async def com_start(interaction: discord.Interaction):
 async def mc_stop(interaction: discord.Interaction, target: str):
 	if target == "JE":
 		print("JE停止プロセス開始")
-		result = mcstop(0)
+		result = PTY_manager.stop_program("JE", True)
 		if result == True:
 			await interaction.response.send_message(f'JE鯖の停止命令を送ったナリよ')
+		elif result == False:
+			await interaction.response.send_message(f'JE鯖の停止命令送信に失敗しました')
 		else:
-			await interaction.response.send_message(f'なんか上手いこと行かなかったみたいですよ\r\n例外詳細:{result}')
-		return
+			await interaction.response.send_message(f'JE鯖の停止命令送信に失敗しました(PTY例外)\r\n例外詳細:{result}')
 	elif target == "BE":
 		print("BE停止プロセス開始")
-		result = mcstop(1)
+		result = PTY_manager.stop_program("BE", True)
 		if result == True:
 			await interaction.response.send_message(f'BE鯖の停止命令を送ったナリよ')
+		elif result == False:
+			await interaction.response.send_message(f'BE鯖の停止命令送信に失敗しました')
 		else:
-			await interaction.response.send_message(f'なんか上手いこと行かなかったみたいですよ\r\n例外詳細:{result}')
-		return
+			await interaction.response.send_message(f'BE鯖の停止命令送信に失敗しました(PTY例外)\r\n例外詳細:{result}')
 	else:
 		await interaction.response.send_message(f'その引数は無効っスよ')
 
@@ -1023,10 +1090,8 @@ async def mc_stop(interaction: discord.Interaction, target: str):
 @app_commands.default_permissions(administrator=True)
 async def exit(interaction: discord.Interaction):
 	print("bot終了")
-	for channel in client.get_all_channels():
-		if channel.name == Manage_Channel:
-			await interaction.response.send_message(f'終了の時間だあああああああああああああああああああああああああああああああ！！！！！！！！！！！（ﾌﾞﾘﾌﾞﾘﾌﾞﾘﾌﾞﾘｭﾘｭﾘｭﾘｭﾘｭﾘｭ！！！！！！ﾌﾞﾂﾁﾁﾌﾞﾌﾞﾌﾞﾁﾁﾁﾁﾌﾞﾘﾘｲﾘﾌﾞﾌﾞﾌﾞﾌﾞｩｩｩｩｯｯｯ！！！！！！！）')
-			await channel.send(f'監視カメラは爆発した')
+	await interaction.response.send_message(f'終了の時間だあああああああああああああああああああああああああああああああ！！！！！！！！！！！（ﾌﾞﾘﾌﾞﾘﾌﾞﾘﾌﾞﾘｭﾘｭﾘｭﾘｭﾘｭﾘｭ！！！！！！ﾌﾞﾂﾁﾁﾌﾞﾌﾞﾌﾞﾁﾁﾁﾁﾌﾞﾘﾘｲﾘﾌﾞﾌﾞﾌﾞﾌﾞｩｩｩｩｯｯｯ！！！！！！！）')
+	await post_message(f'監視カメラは爆発した')
 	await client.close()
 	exit()
 
