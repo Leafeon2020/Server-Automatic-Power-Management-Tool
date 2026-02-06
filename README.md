@@ -172,6 +172,11 @@ BEのアップデートには[Javascriptを用いて動的にURLを生成して�
 ## ライセンス
 ![GPLv3](https://upload.wikimedia.org/wikipedia/commons/thumb/9/93/GPLv3_Logo.svg/720px-GPLv3_Logo.svg.png)
 
+## 開発メモ
+現在testブランチにて大規模な改修を実施中です。  
+ソースコードの抽象化、仮想端末を用いたGUI管理とBot管理の両立、メンテナンス用機能の実装、SSHやVNCを用いなくてもBAN等が出来る環境の整備を行っています。  
+完成し次第mainブランチにも適用するため、Python及びdiscord.pyに詳しい人が居るならば[Misskey](https://misskey.nukumori-sky.net/@krsw)にて連絡下さい。
+
 ## スペシャルサンクス
 当プログラムは[ダクト飯師](https://x.com/joinus_yaruo)の著作である[AAで学ぶネット事件簿 第1章 Operation Lenin](https://yaruo-blog.netlify.app/2017/09/01/internet-casefile-1/)の作中に登場するUniteの構造に着想を得て開発した物になります。  
 従って、彼無しではこのプログラムは完成しなかったとも言えるため、ここに感謝の意を表明しておきます。
