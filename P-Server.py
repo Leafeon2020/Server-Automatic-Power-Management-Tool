@@ -57,7 +57,12 @@
 #2025/12/15 v17 - BE鯖のDLが出来てなかった問題を解決(と細かいとこの修正)
 #2025/12/19 v18 - BE鯖アプデ方式変更
 #2026/01/21 v19 - chmodの追加とバックアップ周りのバグ修正
-#2026/02/02 v20dev - 関数類の整理、端末制御周りの変更、終了コマンドの修正(ここまで実装)、パイプを用いたブラックリスト・ホワイトリストの編集、DM再起動の実装
+#2026/02/10 v20dev - 関数類の整理、端末制御周りの変更、終了コマンドの修正(ここまで実装)、パイプを用いたブラックリスト・ホワイトリストの編集、DM再起動の実装
+
+#現状の問題
+#鯖を起動した後に即落ちする(プロセスも死んでるので恐らく起動ミス)
+#statusコマンドで例外吐く
+#多分PTY周りでパイプもどき組むの上手い事行ってない
 
 #Discord類のインポート
 import discord
@@ -341,7 +346,7 @@ class PTY_manager:
 			session_name = session_name_be
 			name = process_name_be
 			com = be_start
-		if self.is_running(name):
+		if self.is_running(version):
 			print(f"プログラム '{name}' は既に実行中です")
 			return False
 		
@@ -436,8 +441,25 @@ class PTY_manager:
 			name = process_name
 		elif version == "BE":
 			name = process_name_be
-		#死んでたらリスト消去
+		
+		#プログラムが登録されていない場合
 		if name not in self.programs:
+			if version == "JE":
+				pipe_flag_je = False
+			elif version == "BE":
+				pipe_flag_be = False
+			return False
+		
+		#セッションが実際に動いているか確認
+		session_name = self.programs[name]['session']
+		result = subprocess.run(
+			['screen', '-ls'],
+			capture_output=True,
+			text=True
+		)
+		
+		#セッションが見つからない場合はリストから削除
+		if session_name not in result.stdout:
 			del self.programs[name]
 			if version == "JE":
 				pipe_flag_je = False
@@ -445,15 +467,10 @@ class PTY_manager:
 				pipe_flag_be = False
 			return False
 		
-		session_name = self.programs[name]['session']
-		result = subprocess.run(
-			['screen', '-ls'],
-			capture_output=True,
-			text=True
-		)
-		return session_name in result.stdout
+		return True
 
 #本体
+pty_manager = PTY_manager()	#PTY管理クラスインスタンス
 #起動時処理 on_readyが条件なんでスリープ復帰時にも処理されます
 @client.event
 async def on_ready():
@@ -475,25 +492,25 @@ async def on_ready():
 	print("死活確認")
 	#JE
 	try:
-		PTY_manager.is_running("JE")
+		pty_manager.is_running("JE")
 		subprocess.run(["pgrep", process_name], check=True)	#pgrepが例外吐くかどうかで死活確認
 		status = 1	#生存フラグ
 	except subprocess.CalledProcessError:	#死んでる時
 		status = 0	#死亡フラグ
 		if pipe_flag_je == True:	#screen分岐
 			pipe_flag_je = False	#パイプ切断
-			PTY_manager.stop_program("JE", False)	#PTYポア
+			pty_manager.stop_program("JE", False)	#PTYポア
 		await post_message("JE鯖が起動してないですを")
 	#BE
 	try:
-		PTY_manager.is_running("BE")
+		pty_manager.is_running("BE")
 		subprocess.run(["pgrep", process_name_be], check=True)	#pgrepが例外吐くかどうかで死活確認
 		status_be = 1	#生存フラグ
 	except subprocess.CalledProcessError:	#死んでる時
 		status_be = 0	#死亡フラグ
 		if pipe_flag_be == True:	#screen分岐
 			pipe_flag_be = False	#パイプ切断
-			PTY_manager.stop_program("BE", False)	#PTYポア
+			pty_manager.stop_program("BE", False)	#PTYポア
 		await post_message("BE鯖が起動してないですを")
 	await tree.sync()	#コマンドリスト恒心
 	print("制御ファイル存在確認")
@@ -566,7 +583,7 @@ async def task():
 	if status == 1:	#プロセスが死んでたらスルー(連投対策)
 		print("死活確認中")
 		try:
-			PTY_manager.is_running("JE")
+			pty_manager.is_running("JE")
 			subprocess.run(["pgrep", process_name], check=True)
 			status = 1	#生存フラグ
 			print("生きてた")
@@ -574,13 +591,13 @@ async def task():
 			status = 0	#死亡フラグ
 			if pipe_flag_je == True:
 				pipe_flag_je = False	#パイプ切断
-				PTY_manager.stop_program("JE", False)	#PTYポア
+				pty_manager.stop_program("JE", False)	#PTYポア
 			await post_message(f'なんてこった!JEサーバーが殺されちゃった!\r\nこの人でなし!')
 			print("JEが死んでた")
 	#BE
 	if status_be == 1:	#プロセスが死んでたらスルー(連投対策)
 		try:
-			PTY_manager.is_running("BE")
+			pty_manager.is_running("BE")
 			subprocess.run(["pgrep", process_name_be], check=True)
 			status_be = 1	#生存フラグ
 			print("生きてた")
@@ -588,7 +605,7 @@ async def task():
 			status_be = 0	#死亡フラグ
 			if pipe_flag_be == True:
 				pipe_flag_be = False	#パイプ切断
-				PTY_manager.stop_program("BE", False)	#PTYポア
+				pty_manager.stop_program("BE", False)	#PTYポア
 			await post_message(f'なんてこった!BEサーバーが殺されちゃった!\r\nこの人でなし!')
 			print("BEが死んでた")
 	#接続数監視
@@ -856,7 +873,7 @@ async def com_start(interaction: discord.Interaction, boot: str):
 			#メッセージ送信
 			#鯖起動
 			print("起動命令送信")
-			result = await PTY_manager.start_program("BE")
+			result = await pty_manager.start_program("BE")
 			if result == True:
 				await post_message("BE鯖の起動命令を送ったナリよ")
 				status_be = 1	#起動処理中から起動に変更
@@ -897,7 +914,7 @@ async def com_status(interaction: discord.Interaction, target: str):
 			status = 0	#死亡フラグ
 			if pipe_flag_je == True:
 				pipe_flag_je = False	#パイプ切断
-				PTY_manager.stop_program("JE", False)	#PTYポア
+				pty_manager.stop_program("JE", False)	#PTYポア
 			await interaction.response.send_message(f'陳死亡')
 			print("鯖死亡")
 	elif target == "BE":
@@ -912,7 +929,7 @@ async def com_status(interaction: discord.Interaction, target: str):
 			status_be = 0	#死亡フラグ
 			if pipe_flag_be == True:
 				pipe_flag_be = False	#パイプ切断
-				PTY_manager.stop_program("BE", False)	#PTYポア
+				pty_manager.stop_program("BE", False)	#PTYポア
 			await interaction.response.send_message(f'陳死亡')
 			print("鯖死亡")
 	else:
@@ -1066,7 +1083,7 @@ async def com_start(interaction: discord.Interaction):
 async def mc_stop(interaction: discord.Interaction, target: str):
 	if target == "JE":
 		print("JE停止プロセス開始")
-		result = PTY_manager.stop_program("JE", True)
+		result = pty_manager.stop_program("JE", True)
 		if result == True:
 			await interaction.response.send_message(f'JE鯖の停止命令を送ったナリよ')
 		elif result == False:
@@ -1075,7 +1092,7 @@ async def mc_stop(interaction: discord.Interaction, target: str):
 			await interaction.response.send_message(f'JE鯖の停止命令送信に失敗しました(PTY例外)\r\n例外詳細:{result}')
 	elif target == "BE":
 		print("BE停止プロセス開始")
-		result = PTY_manager.stop_program("BE", True)
+		result = pty_manager.stop_program("BE", True)
 		if result == True:
 			await interaction.response.send_message(f'BE鯖の停止命令を送ったナリよ')
 		elif result == False:
