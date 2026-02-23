@@ -10,11 +10,12 @@
 #2025/04/18 v1 - リリース
 #2025/05/14 v2 - 再接続時の例外処理を実装
 #2025/07/22 v3 - 起動待機中に起動しなかった場合にWoLを再送信する機能の実装
+#2026/02/23 v4 - 遠隔起動のリトライ上限を設定
 
 #Discord類のインポート
-import discord # type: ignore
-from discord import app_commands # type: ignore
-from discord.ext import tasks # type: ignore
+import discord
+from discord import app_commands
+from discord.ext import tasks
 #システム系のインポート
 import subprocess
 
@@ -30,12 +31,12 @@ tree = app_commands.CommandTree(client)	#コマンド類宣言
 Manage_Channel: str = "うんち"	#書き込み先
 host: str = "192.168.1.2"   #ping確認対象
 mac: str = "AB:CD:EF:12:34:56"	#対象MACアドレス
+retry_limit: int = 5	#起動リトライ上限回数
 
 #システム用変数 触るな
-global status	#グローバル変数化 Pythonの仕様上関数ごとに呼び出さないといけないらしい
 status: int = 0	#プロセス状態用フラグ 0で落ちてて1で生きてる2で起動処理中
-global timer
 timer: int = 0	#起動監視タイマー
+counter: int = 0	#起動回数カウント用
 
 #本体
 #起動時処理
@@ -72,13 +73,11 @@ async def on_ready():
 @tasks.loop(seconds=60)	#毎分確認
 async def task():
 	global status
-	global timer
 	print("死活確認中")
 	if status == 1:	#プロセスが死んでたらスルー(連投対策)
 		result = subprocess.run(['ping', host , "-c", "3"], capture_output=True, text=True)
 		if result.returncode == 0:
 			status = 1	#生存フラグ
-			timer = 0	#リセット
 			print("生きてた")
 		else:
 			status = 0	#死亡フラグ
@@ -86,7 +85,6 @@ async def task():
 				if channel.name == Manage_Channel:
 					await channel.send("https://i.imgur.com/AXm3PRM.png")
 			print("死んでた")
-			timer = 0	#リセット
 	elif status == 2:	#起動処理中の処理
 		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)
 		if result.returncode == 0:	#pingが返ってきたら生存状態にする
@@ -98,7 +96,7 @@ async def task():
 		else:
 			timer += 1	#インクリメント
 			print("まだ起動してない")
-			if timer >= 5:	#5分経過しても起動しない場合
+			if timer >= 5 and counter <= retry_limit:	#5分経過しても起動しない場合
 				#再度WoLを送信
 				try:
 					subprocess.run(["wakeonlan", mac], check=True)
@@ -114,6 +112,14 @@ async def task():
 							await channel.send("例外を吐きました\r\n内容は", e)
 					status = 0	#死亡フラグ
 				timer = 0	#リセット
+				counter += 1	#起動回数カウント
+			elif counter > retry_limit:	#リトライ上限到達
+				for channel in client.get_all_channels():
+					if channel.name == Manage_Channel:
+						await channel.send("5回叩き起こしたけど起動してないね MACアドレスとか間違えてない?")
+				status = 0	#死亡フラグ
+				timer = 0	#リセット
+				counter = 0	#リセット
 	return
 
 #コマンド処理
