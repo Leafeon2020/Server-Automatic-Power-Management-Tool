@@ -57,10 +57,10 @@
 #2025/12/15 v17 - BE鯖のDLが出来てなかった問題を解決(と細かいとこの修正)
 #2025/12/19 v18 - BE鯖アプデ方式変更
 #2026/01/21 v19 - chmodの追加とバックアップ周りのバグ修正
-#2026/03/02 v20dev - 関数類の整理、端末制御周りの変更、終了コマンドの修正(ここまで実装)、パイプを用いたブラックリスト・ホワイトリストの編集、DM再起動の実装
+#2026/03/04 v20dev - 関数類の整理、端末制御周りの変更、終了コマンドの修正(ここまで実装)、パイプを用いたブラックリスト・ホワイトリストの編集、DM再起動の実装
 
 #現状の状態
-#多分監視周りが上手い事行ってないからその後の処理が全部止まってる
+#多分監視周りが上手い事行ってないからその後の処理が全部止まってる→解決
 #tmuxでの起動に成功(SSHからの接続も確認)
 #追加コマンド周りは未検証
 #関数整理はとりあえずこの形で
@@ -310,7 +310,7 @@ class TmuxSessionManager:
 			subprocess.run([
 				'tmux', 'new-session', '-d',
 				'-s', session_name,
-				'bash', '-c', command   # ← bashに解釈させる
+				'bash', '-c', command   #bashに解釈させる
 			], check=True)
 			print(f"'{session_name}'のtmuxセッションを作成しました")
 			time.sleep(0.5)  # セッション起動待ち
@@ -386,6 +386,8 @@ class TmuxSessionManager:
 		
 	#死活確認
 	def check_process_alive(self, version: str) -> ProcessStatus:
+		global session_name_je
+		global session_name_be
 		if version == "JE":
 			session_name = session_name_je
 		elif version == "BE":
@@ -396,7 +398,11 @@ class TmuxSessionManager:
 		session = self.sessions[session_name]
 		#tmuxセッションが存在するか確認
 		try:
-			result = subprocess.run(['tmux', 'has-session', '-t', session_name], capture_output=True, stderr=subprocess.DEVNULL)
+			result = subprocess.run(
+				['tmux', 'has-session', '-t', session_name],
+				stdout=subprocess.PIPE,
+				stderr=subprocess.DEVNULL
+			)
 			#tmuxセッションが存在しない時
 			if result.returncode != 0:
 				session.status = ProcessStatus.DEAD
@@ -919,33 +925,6 @@ async def watchdog():
 		await post_message(f'鯖は死んだ… 残されたダイイングメッセージには以下のように残されていた\r\n```log\r\n' + crash_log + "\r\n```")
 		break
 
-#サーバー停止処理
-@tree.command(name="stop", description="サーバープロセスを停止します")
-@describe(target="対象")
-@app_commands.autocomplete(target=version_autocomplete)
-@discord.app_commands.default_permissions(administrator=True)
-async def mc_stop(interaction: discord.Interaction, target: str):
-	if target == "JE":
-		print("JE停止プロセス開始")
-		result = await integration.manager.mcstop(0)
-		if result == True:
-			await interaction.response.send_message(f'JE鯖の停止命令を送ったナリよ')
-		elif result == False:
-			await interaction.response.send_message(f'JE鯖の停止命令送信に失敗しました')
-		else:
-			await interaction.response.send_message(f'JE鯖の停止命令送信に失敗しました(PTY例外)\r\n例外詳細:{result}')
-	elif target == "BE":
-		print("BE停止プロセス開始")
-		result = await integration.manager.mcstop(1)
-		if result == True:
-			await interaction.response.send_message(f'BE鯖の停止命令を送ったナリよ')
-		elif result == False:
-			await interaction.response.send_message(f'BE鯖の停止命令送信に失敗しました')
-		else:
-			await interaction.response.send_message(f'BE鯖の停止命令送信に失敗しました(PTY例外)\r\n例外詳細:{result}')
-	else:
-		await interaction.response.send_message(f'その引数は無効っスよ')
-
 #コマンド処理
 #起動
 @tree.command(name="start", description="サーバープロセスを実行します")
@@ -1320,6 +1299,35 @@ async def check_players(interaction: discord.Interaction):
 	except TimeoutError:
 		player_be = 0
 	await interaction.followup.send("現在JE鯖には" + str(player_je) + "人が、BE鯖には" + str(player_be) + "人が接続しています。")
+
+#サーバー停止処理
+@tree.command(name="stop", description="サーバープロセスを停止します")
+@describe(target="対象")
+@app_commands.autocomplete(target=version_autocomplete)
+@discord.app_commands.default_permissions(administrator=True)
+async def mc_stop(interaction: discord.Interaction, target: str):
+	result = await TmuxSessionManager.check_process_alive(integration.manager, target)	#死活確認
+	if target == "JE":
+		print("JE停止プロセス開始")
+		if result == ProcessStatus.RUNNING:
+			await TmuxSessionManager.send_command(integration.manager, "JE", "stop")	#停止コマンド送信
+			await interaction.response.send_message(f'JE鯖の停止命令を送ったナリよ')
+		elif result == ProcessStatus.DEAD:
+			await interaction.response.send_message(f'JE鯖の停止命令送信に失敗しました')
+		else:
+			await interaction.response.send_message(f'JE鯖の停止命令送信に失敗しました(PTY例外)\r\n例外詳細:{result}')
+	elif target == "BE":
+		print("BE停止プロセス開始")
+		result = await integration.manager.mcstop(1)
+		if result == ProcessStatus.RUNNING:
+			await TmuxSessionManager.send_command(integration.manager, "BE", "stop")	#停止コマンド送信
+			await interaction.response.send_message(f'BE鯖の停止命令を送ったナリよ')
+		elif result == ProcessStatus.DEAD:
+			await interaction.response.send_message(f'BE鯖の停止命令送信に失敗しました')
+		else:
+			await interaction.response.send_message(f'BE鯖の停止命令送信に失敗しました(PTY例外)\r\n例外詳細:{result}')
+	else:
+		await interaction.response.send_message(f'その引数は無効っスよ')
 
 #終了処理
 @tree.command(name="exit", description="監視botを終了させます")
