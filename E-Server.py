@@ -11,6 +11,7 @@
 #2025/05/14 v2 - 再接続時の例外処理を実装
 #2025/07/22 v3 - 起動待機中に起動しなかった場合にWoLを再送信する機能の実装
 #2026/02/23 v4 - 遠隔起動のリトライ上限を設定
+#2026/03/07 v5 - 変数の宣言忘れによるエラー解消
 
 #Discord類のインポート
 import discord
@@ -73,6 +74,8 @@ async def on_ready():
 @tasks.loop(seconds=60)	#毎分確認
 async def task():
 	global status
+	global timer
+	global counter
 	print("死活確認中")
 	if status == 1:	#プロセスが死んでたらスルー(連投対策)
 		result = subprocess.run(['ping', host , "-c", "3"], capture_output=True, text=True)
