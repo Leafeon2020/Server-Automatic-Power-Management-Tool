@@ -29,6 +29,7 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 ## 必要環境
 ### 両方に必要
 - Linux *(P-ServerはUbuntu 24.04、E-ServerはRaspbbery Pi OS Bullseyeで動作確認済)*
+    - P-Server側はDebian系である必要があります。(BE鯖のバイナリの都合)
 - Python 3.x *(3.11.2で動作確認済)*
 - [discord.py](https://github.com/Rapptz/discord.py)
 ### P-Serverに必要
@@ -48,7 +49,7 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 **起動の前に**  
 本ソフトウェアはサーバー向けではありますが、サーバーへのアクセスが無い場合に**サーバーマシンをスリープモードにする**という強引に消費電力を削減する目的で作成したためスリープモードが使える環境を用意する必要があります。
 ### 下準備(Ubuntu)
-Debian系なら大体同じになるはずです。RedHat系は知らん
+Debian系なら大体同じになるはずです。
 1. Ubuntu Serverを使う場合、デフォルトでスリープモードが無効化されているため、有効化する必要があります。そのため、以下のコマンドを実行してください。
 ```sh
 sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
@@ -64,7 +65,8 @@ HibernateState=disk
 HybridSleepMode=suspend platform shutdown
 HybridSleepState=disk
 ```
-*元々ハイブリッドスリープ([S4ステート](https://learn.microsoft.com/ja-jp/windows-hardware/drivers/kernel/system-sleeping-states#system-power-state-s4))を使う予定でやっていましたが、途中で無理なのに気づいて通常の[S3ステート](https://learn.microsoft.com/ja-jp/windows-hardware/drivers/kernel/system-sleeping-states#system-power-state-s3)のスリープに切り替えてるのでハイバーネートとかハイブリッドスリープとかは必要無いと思います。*
+*元々ハイブリッドスリープ([S4ステート](https://learn.microsoft.com/ja-jp/windows-hardware/drivers/kernel/system-sleeping-states#system-power-state-s4))を使う予定でやっていましたが、途中で無理なのに気づいて通常の[S3ステート](https://learn.microsoft.com/ja-jp/windows-hardware/drivers/kernel/system-sleeping-states#system-power-state-s3)のスリープに切り替えてるのでハイバーネートとかハイブリッドスリープとかは必要無いと思います。*  
+*一応後でサスペンドだけで済む記述を調べておきます*
 
 3. Wake on LANの設定をします
 
@@ -84,11 +86,11 @@ Python、watchfile、pixz、discord.py、MCStatus、requests、Seleniumを導入
 
 P-Server用
 ```sh
-sudo apt update && sudo apt install -y pixz python3.12 watchfile && sudo snap insatll firefox geckodriver && pip install -U pip && pip install discord.py mcstatus selenium
+sudo apt install -U -y pixz python3.12 watchfile python3-pip && sudo snap insatll firefox geckodriver && pip install -U pip && pip install discord.py mcstatus selenium
 ```
 E-Server用 *テスト環境がRaspberry Piなのでvenvまで書いてます*
 ```sh
-sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv venv && . venv/bin/activate && pip install -U pip && pip install discord.py
+sudo apt install -U -y python3.12 wakeonlan python3-pip && python -m venv venv && . venv/bin/activate && pip install -U pip && pip install discord.py
 ```
 
 6. DiscordのBot環境を構築する
@@ -110,7 +112,7 @@ sudo apt update && sudo apt install -y python3.12 wakeonlan && python -m venv ve
 |process_name_be|Botに監視させたいプロセス名(BE)|P-Server|
 |directory|操作対象ディレクトリ(JE)|P-Server|
 |directory_be|操作対象ディレクトリ(BE)|P-Server|
-|command|startコマンドで実行するコマンド(JE) ※管理目的でGUI環境の端末を呼び出してますがCLIで起動も可|P-Server|
+|command|startコマンドで実行するコマンド(JE) ※管理目的でGUI環境の端末を呼び出してます|P-Server|
 |be_start|startコマンドで実行するコマンド(BE版)|P-Server|
 |backup|バックアップ先(JE)|P-Server|
 |backup_be|バックアップ先(BE)|P-Server|
