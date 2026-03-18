@@ -106,8 +106,8 @@ process_name_be: str = "bedrock_server"	#プロセス名指定
 Manage_Channel: str = "うんち"	#書き込み先
 directory: str = "/home/krsw/.minecraft"	#対象ディレクトリ
 directory_be: str = "/home/krsw/Minecraft_Bedrock"	#対象ディレクトリ
-backup: str = "/home/krsw/backup"	#バックアップ保存先
-backup_be: str = "/home/krsw/Minecraft_Bedrock/backup"	#バックアップ保存先
+backup: str = f"{directory}/backup"	#バックアップ保存先
+backup_be: str = f"{directory_be}/backup"	#バックアップ保存先
 port_a: int = 2783	#ポート番号その1(JEポート)
 port_b: int = 40298	#ポート番号その2(SSHポート)
 port_c: int = 43044	#ポート番号その3(BEポート)
@@ -119,7 +119,7 @@ backup_limit: int = 20	#バックアップ世代数
 backup_remove: bool = True	#バックアップ自動消去フラグ
 terminal: str = "mate-terminal"	#DEの端末
 je_start: str = f"java -Xmx28G -jar {directory}/CatServer-universal.jar"	#JE鯖起動コマンド Xmxの箇所で割当RAMを調整してください ※一応Javaの各種変数対応です
-be_start: str = "LD_LIBRARY_PATH=. ./bedrock_server;"	#BE鯖起動コマンド
+be_start: str = f"LD_LIBRARY_PATH=. {directory_be}/bedrock_server"	#BE鯖起動コマンド
 session_name_je: str = "je_server"	#JE鯖セッション名
 session_name_be: str = "be_server"	#BE鯖セッション名
 
