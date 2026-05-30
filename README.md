@@ -24,7 +24,7 @@ DiscordのBotにサーバーマシンの電源管理をさせる自作Bot
 元々Minecraftのサーバー用に書いてますが各種変数とかを触れば一応他に流用は出来ます。
 
 Q. P-Server、E-Serverって何?  
-A. IntelのヘテロジニアスCPUみたいな命名法則でPerformance Server、Effective Serverの略でPとEです。E-Serverは超低消費電力で24時間稼働するサーバーで動かす前提です。  
+A. Intelのヘテロジニアスマルチコアみたいな命名法則でPerformance Server、Effective Serverの略でPとEです。E-Serverは超低消費電力で24時間稼働するサーバーで動かす前提です。  
 この制御方式、どう呼ぶか分かってないのでサーバー構築に自信ニキは既にこういう構造の鯖あったら名前を教えてくれるか一緒に考えてくれ  
 一応ヘテロジニアスマルチサーバー方式っていう仮称は付けてる
 
