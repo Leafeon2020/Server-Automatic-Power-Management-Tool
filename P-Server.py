@@ -65,6 +65,18 @@
 #関数整理はとりあえずこの形で
 #pid取得の関数が2個あるので結合して1つに纏めたい(挙動的に_get_session_pidを参照しないとエラー吐くのでそっちに統合予定)
 
+#ToDoリスト
+#get_pid関数の廃止
+#suspendをhybrid_sleepに変更するための環境変数追加(実質S4ステートをサポートするか)
+#JE・BE周りの機能を無効化する環境変数の実装
+#BE鯖稼働時を条件として新規でtasks回してBE鯖の自動バックアップ実装(pixz使用) BE鯖が死んでたらtasksループを止める(毎分起動かBE鯖起動で呼び出しかは未定)
+#コマンド送信機能を使ってホワイトリスト/ブラックリストの制御を出来るようにする(要専用ロール)
+#認証時(DBの保存周りはまだ未定だけど多分MySQL)にDiscordのIDとマイクラのID(JE/BE両方)を関連付けて自動でロール付与を出来るようにする
+#ロール周りの環境変数の追加
+#緊急用コマンドとしてLightDMの再起動コマンド実装 基本tmuxで動いてるから多分鯖自体は止めてGUIの再起動くらいは余裕で出来るはず
+#手動でサスペンドに落とせるコマンドの実装
+#MOD・プラグイン用にcommand.pyみたいなファイル作って外部からコマンドを読み込んで送信出来るようなプラットフォームの制定(完全鯖独自仕様化の脱却)
+
 #Discord類のインポート
 import discord
 from discord import app_commands
@@ -131,8 +143,8 @@ auto_sleep: bool = True	#自動スリープ設定
 sleep: int = -1	#無接続時間 -1にしないと起動直後の処理でインクリメントされて1分からのカウントになる
 intosleep: bool = False	#スリープモード移行フラグ
 counter: int = 0	#同時アクセス数(設定全ポート分)
-process_id: str = "0"	#プロセスID(JE)
-process_id_be: str = "0"	#プロセスID(BE)
+process_id: str = None	#プロセスID(JE)
+process_id_be: str = None	#プロセスID(BE)
 switch_file: str = directory + "/sleep_switch.txt"	#watchdog制御用ファイル
 JE_server = JavaServer.lookup("localhost:" + str(port_a))	#JE鯖の読み込み
 BE_server = BedrockServer.lookup("localhost:" + str(port_c))	#BE鯖の読み込み
@@ -169,6 +181,7 @@ def extract(file_path, start_str, end_str):
 	return ''.join(extracted_lines)	#str型で返す
 
 #PID取得
+#廃止予定
 def get_pid(switch: int):
 	try:
 		if switch == 0:	#JE
@@ -487,6 +500,7 @@ class TmuxSessionManager:
 			session.status = ProcessStatus.DEAD
 			return ProcessStatus.DEAD
 		#PID確認
+		#PID取得は全てこちらに変更予定 TmuxSessionManager._get_session_pidで呼び出し
 		if session.pid:
 			try:
 				#kill -0で死活確認 ※pgrepだとtmuxセッションのPIDが返ってきてしまうため
