@@ -12,6 +12,11 @@
 #2025/07/22 v3 - 起動待機中に起動しなかった場合にWoLを再送信する機能の実装
 #2026/02/23 v4 - 遠隔起動のリトライ上限を設定
 #2026/03/07 v5 - 変数の宣言忘れによるエラー解消
+#2026/10/21 v6 - リトライ回数のガバ修正、P-Serverの開発版からメッセージ送信関数を移植
+
+#ToDo
+#自動システムアプデ実装
+#1画面用の恒心オプションを実装
 
 #Discord類のインポート
 import discord
@@ -40,6 +45,13 @@ timer: int = 0	#起動監視タイマー
 counter: int = 0	#起動回数カウント用
 
 #本体
+#投稿
+async def post_message(message: str):
+	#チャンネル識別
+	for channel in client.get_all_channels():
+		if channel.name == Manage_Channel:
+			await channel.send(message)
+
 #起動時処理
 @client.event
 async def on_ready():
@@ -48,9 +60,7 @@ async def on_ready():
 	await client.change_presence(activity=discord.Game("開示請求を棄却中…"))
 	await tree.sync()	#コマンド読み込み
 	#書き込み先チャンネルID取得
-	for channel in client.get_all_channels():
-		if channel.name == Manage_Channel:
-			await channel.send("https://i.imgur.com/ySa5Rf3.png")	#起動通知
+	await post_message("https://i.imgur.com/ySa5Rf3.png")	#起動通知
 	#鯖生存確認
 	print("ping確認")
 	result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
@@ -59,9 +69,7 @@ async def on_ready():
 		print("生きてる")
 	else:	#死んでる時
 		status = 0	#死亡フラグ
-		for channel in client.get_all_channels():
-			if channel.name == Manage_Channel:
-				await channel.send(f'ごりん終、だな')
+		await post_message(f'ごりん終、だな')
 		print("死んでる")
 	try:
 		task.start()	#死活確認起動
@@ -71,55 +79,45 @@ async def on_ready():
 	return
 
 #監視処理
-@tasks.loop(seconds=60)	#毎分確認
+@tasks.loop(minutes=1)	#毎分確認
 async def task():
 	global status
 	global timer
 	global counter
 	print("死活確認中")
 	if status == 1:	#プロセスが死んでたらスルー(連投対策)
-		result = subprocess.run(['ping', host , "-c", "3"], capture_output=True, text=True)
+		result = subprocess.run(['ping', host , "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
 		if result.returncode == 0:
 			status = 1	#生存フラグ
 			print("生きてた")
 		else:
 			status = 0	#死亡フラグ
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send("https://i.imgur.com/AXm3PRM.png")
+			await post_message("https://i.imgur.com/AXm3PRM.png")
 			print("死んでた")
 	elif status == 2:	#起動処理中の処理
 		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)
 		if result.returncode == 0:	#pingが返ってきたら生存状態にする
 			status = 1	#生存フラグ
-			for channel in client.get_all_channels():
-				if channel.name == Manage_Channel:
-					await channel.send("サーバーマシンが起動しました")
+			await post_message("サーバーマシンが起動しました")
 			print("サーバー起動")
 		else:
 			timer += 1	#インクリメント
 			print("まだ起動してない")
-			if timer >= 5 and counter <= retry_limit:	#5分経過しても起動しない場合
+			if timer >= 5 and counter <= retry_limit - 1:	#5分経過しても起動しない場合
 				#再度WoLを送信
 				try:
 					subprocess.run(["wakeonlan", mac], check=True)
-					for channel in client.get_all_channels():
-						if channel.name == Manage_Channel:
-							await channel.send("5分経っても起床しないのでもう一度叩き起こしてみます")
+					await post_message("5分経っても起床しないのでもう一度叩き起こしてみます")
 					print("WoL送信")
 				#例外処理
 				except subprocess.CalledProcessError as e:
 					print("subprocess例外")
-					for channel in client.get_all_channels():
-						if channel.name == Manage_Channel:
-							await channel.send("例外を吐きました\r\n内容は", e)
+					await post_message("おおっと例外処理\r\n内容は" + str(e))
 					status = 0	#死亡フラグ
 				timer = 0	#リセット
 				counter += 1	#起動回数カウント
-			elif counter > retry_limit:	#リトライ上限到達
-				for channel in client.get_all_channels():
-					if channel.name == Manage_Channel:
-						await channel.send("5回叩き起こしたけど起動してないね MACアドレスとか間違えてない?")
+			elif counter == retry_limit:	#リトライ上限到達
+				await post_message(str(retry_limit) + "回叩き起こしたけど起動してないね MACアドレスとか間違えてない?")
 				status = 0	#死亡フラグ
 				timer = 0	#リセット
 				counter = 0	#リセット
@@ -183,12 +181,12 @@ async def boot(interaction: discord.Interaction):
 async def debug(interaction: discord.Interaction):
 	global status
 	if status == 0:
-		state = "0(ping応答無し)"
+		state = "(ping応答無し)"
 	elif status == 1:
-		state = "1(ping応答あり)"
+		state = "(ping応答あり)"
 	elif status == 2:
-		state = "2(起動待機中)"
-	await interaction.response.send_message("status:" + state)
+		state = "(起動待機中)"
+	await interaction.response.send_message("status:" + str(status) + state + "\r\n起動回数:" + str(counter) + "\r\nタイマー:" + str(timer))
 	return
 
 #終了処理
@@ -196,10 +194,8 @@ async def debug(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 async def exit(interaction: discord.Interaction):
 	print("bot終了")
-	for channel in client.get_all_channels():
-		if channel.name == Manage_Channel:
-			await interaction.response.send_message(f'終了の時間だあああああああああああああああああああああああああああああああ！！！！！！！！！！！（ﾌﾞﾘﾌﾞﾘﾌﾞﾘﾌﾞﾘｭﾘｭﾘｭﾘｭﾘｭﾘｭ！！！！！！ﾌﾞﾂﾁﾁﾌﾞﾌﾞﾌﾞﾁﾁﾁﾁﾌﾞﾘﾘｲﾘﾌﾞﾌﾞﾌﾞﾌﾞｩｩｩｩｯｯｯ！！！！！！！）')
-			await channel.send(f'Nuclear missile is launched!\r\n(意訳:botが爆発しました)')
+	await interaction.response.send_message(f'終了の時間だあああああああああああああああああああああああああああああああ！！！！！！！！！！！（ﾌﾞﾘﾌﾞﾘﾌﾞﾘﾌﾞﾘｭﾘｭﾘｭﾘｭﾘｭﾘｭ！！！！！！ﾌﾞﾂﾁﾁﾌﾞﾌﾞﾌﾞﾁﾁﾁﾁﾌﾞﾘﾘｲﾘﾌﾞﾌﾞﾌﾞﾌﾞｩｩｩｩｯｯｯ！！！！！！！）')
+	await post_message(f'Nuclear missile is launched!\r\n(意訳:botが爆発しました)')
 	await client.close()
 	exit()
 	
