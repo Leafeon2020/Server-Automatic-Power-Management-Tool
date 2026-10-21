@@ -85,7 +85,7 @@ async def task():
 	global timer
 	global counter
 	print("死活確認中")
-	if status == 1:	#プロセスが死んでたらスルー(連投対策)
+	if status == 1:	#鯖が死んでたらスルー(連投対策)
 		result = subprocess.run(['ping', host , "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
 		if result.returncode == 0:
 			status = 1	#生存フラグ
@@ -95,7 +95,7 @@ async def task():
 			await post_message("https://i.imgur.com/AXm3PRM.png")
 			print("死んでた")
 	elif status == 2:	#起動処理中の処理
-		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)
+		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
 		if result.returncode == 0:	#pingが返ってきたら生存状態にする
 			status = 1	#生存フラグ
 			await post_message("サーバーマシンが起動しました")
@@ -103,7 +103,7 @@ async def task():
 		else:
 			timer += 1	#インクリメント
 			print("まだ起動してない")
-			if timer >= 5 and counter <= retry_limit - 1:	#5分経過しても起動しない場合
+			if timer == 5 and counter < retry_limit:	#5分経過しても起動しない場合
 				#再度WoLを送信
 				try:
 					subprocess.run(["wakeonlan", mac], check=True)
@@ -129,9 +129,9 @@ async def task():
 async def check(interaction: discord.Interaction):
 	global status
 	await interaction.response.defer()
-	if status != 2:	#サーバーが死んでたらスルー(連投対策)
+	if status != 2:	#鯖が死んでたらスルー(連投対策)
 		print("死活確認(コマンド)")
-		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)
+		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
 		if result.returncode == 0:
 			status = 1	#生存フラグ
 			print("生きてた")
@@ -142,7 +142,7 @@ async def check(interaction: discord.Interaction):
 			await interaction.followup.send("死んでる")
 	elif status == 2:
 		print("起動待機中")
-		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)
+		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
 		if result.returncode == 0:	#pingが返ってきたら生存状態にする
 			status = 1	#生存フラグ
 			await interaction.followup.send("サーバーマシンが起動しました")
@@ -157,7 +157,7 @@ async def boot(interaction: discord.Interaction):
 	print("起動前死活確認")
 	if status != 2:
 		await interaction.response.defer()
-		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)
+		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
 		if result.returncode == 0:
 			await interaction.followup.send("大松「起きてるぞ」")
 			print("起動済")
