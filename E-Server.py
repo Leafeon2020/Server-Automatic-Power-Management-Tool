@@ -13,6 +13,7 @@
 #2026/02/23 v4 - 遠隔起動のリトライ上限を設定
 #2026/03/07 v5 - 変数の宣言忘れによるエラー解消
 #2026/10/21 v6 - リトライ回数のガバ修正、P-Serverの開発版からメッセージ送信関数を移植
+#2026/10/25 v7 - リトライ処理の時間設定が出来るように変更
 
 #ToDo
 #自動システムアプデ実装
@@ -38,9 +39,10 @@ Manage_Channel: str = "うんち"	#書き込み先
 host: str = "192.168.1.2"   #ping確認対象
 mac: str = "AB:CD:EF:12:34:56"	#対象MACアドレス
 retry_limit: int = 5	#起動リトライ上限回数
+retry_timer: int = 3	#起動リトライ間隔(分)
 
 #システム用変数 触るな
-status: int = 0	#プロセス状態用フラグ 0で落ちてて1で生きてる2で起動処理中
+status: int = 0	#鯖状態用フラグ 0で落ちてて1で生きてる2で起動処理中
 timer: int = 0	#起動監視タイマー
 counter: int = 0	#起動回数カウント用
 
@@ -62,9 +64,9 @@ async def on_ready():
 	#書き込み先チャンネルID取得
 	await post_message("https://i.imgur.com/ySa5Rf3.png")	#起動通知
 	#鯖生存確認
-	print("ping確認")
 	result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
-	if result.returncode == 0:
+	print("ping確認")
+	if result.returncode == 0:	#生きてた時
 		status = 1	#生存フラグ
 		print("生きてる")
 	else:	#死んでる時
@@ -86,7 +88,8 @@ async def task():
 	global counter
 	print("死活確認中")
 	if status == 1:	#鯖が死んでたらスルー(連投対策)
-		result = subprocess.run(['ping', host , "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
+		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
+		print("ping確認")
 		if result.returncode == 0:
 			status = 1	#生存フラグ
 			print("生きてた")
@@ -96,6 +99,7 @@ async def task():
 			print("死んでた")
 	elif status == 2:	#起動処理中の処理
 		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
+		print("ping確認")
 		if result.returncode == 0:	#pingが返ってきたら生存状態にする
 			status = 1	#生存フラグ
 			await post_message("サーバーマシンが起動しました")
@@ -103,12 +107,12 @@ async def task():
 		else:
 			timer += 1	#インクリメント
 			print("まだ起動してない")
-			if timer == 5 and counter < retry_limit:	#5分経過しても起動しない場合
+			if timer == retry_timer and counter < retry_limit:	#指定時間経過しても起動しない場合
 				#再度WoLを送信
 				try:
 					subprocess.run(["wakeonlan", mac], check=True)
-					await post_message("5分経っても起床しないのでもう一度叩き起こしてみます")
-					print("WoL送信")
+					await post_message(str(retry_timer) + "分経っても起床しないのでもう一度叩き起こしてみます")
+					print("WoL再送信")
 				#例外処理
 				except subprocess.CalledProcessError as e:
 					print("subprocess例外")
@@ -117,6 +121,7 @@ async def task():
 				timer = 0	#リセット
 				counter += 1	#起動回数カウント
 			elif counter == retry_limit:	#リトライ上限到達
+				print(str(retry_limit) + "回再試行したが失敗")
 				await post_message(str(retry_limit) + "回叩き起こしたけど起動してないね MACアドレスとか間違えてない?")
 				status = 0	#死亡フラグ
 				timer = 0	#リセット
@@ -132,6 +137,7 @@ async def check(interaction: discord.Interaction):
 	if status != 2:	#鯖が死んでたらスルー(連投対策)
 		print("死活確認(コマンド)")
 		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
+		print("ping確認")
 		if result.returncode == 0:
 			status = 1	#生存フラグ
 			print("生きてた")
@@ -143,6 +149,7 @@ async def check(interaction: discord.Interaction):
 	elif status == 2:
 		print("起動待機中")
 		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
+		print("ping確認")
 		if result.returncode == 0:	#pingが返ってきたら生存状態にする
 			status = 1	#生存フラグ
 			await interaction.followup.send("サーバーマシンが起動しました")
@@ -158,19 +165,21 @@ async def boot(interaction: discord.Interaction):
 	if status != 2:
 		await interaction.response.defer()
 		result = subprocess.run(['ping', host, "-c", "3"], capture_output=True, text=True)	#pingが返ってくるかで死活確認 3回送って全部不通だったら死んでる判定
+		print("ping確認")
 		if result.returncode == 0:
 			await interaction.followup.send("大松「起きてるぞ」")
 			print("起動済")
-			status = 1
+			status = 1	#生存フラグ
 		else:
 			try:
 				subprocess.run(["wakeonlan", mac], check=True)
 				await interaction.followup.send("起動命令を送信しました")
+				print("WoL送信")
+				status = 2	#起動待機フラグ
 			except subprocess.CalledProcessError as e:
 				print("subprocess例外")
 				await interaction.followup.send("例外を吐きました\r\n内容は", e)
-			print("WoL送信")
-			status = 2
+				status = 0	#死亡フラグ 一応折っておく
 	else:
 		await interaction.followup.send("鯖は起動中だ しばし待たれよ")
 		print("起動待機のため中断")
